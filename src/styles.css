@@ -14,7 +14,13 @@ html, body, #root { height: 100%; margin: 0; font-family: Segoe UI, sans-serif; 
 .st.D { color: #c5221f; }
 .st.R { color: #8a4d00; }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.diff { flex: 1; min-height: 0; }
+.diff { flex: 1; min-height: 0; display: flex; }
+.diff.split .pane { flex: 1; min-width: 0; height: 100%; }
+.diff.split .pane.original { border-right: 1px solid #ccc; }
+.diff:not(.split) .pane { flex: 1; min-width: 0; height: 100%; }
+.gde-added-line { background: rgba(24, 128, 56, 0.16); }
+.gde-added-margin { border-left: 3px solid #188038; }
+.gde-added-text { background: rgba(24, 128, 56, 0.32); }
 .status { padding: 24px; }
 .dirty { color: #ffd54f; }
 .resizer { width: 4px; cursor: col-resize; background: #ddd; }

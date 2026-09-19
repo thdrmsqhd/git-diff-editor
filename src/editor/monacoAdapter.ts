@@ -1,5 +1,6 @@
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import { addedHighlight } from './lineDiff';
 
 self.MonacoEnvironment = {
   getWorker() {
@@ -7,43 +8,63 @@ self.MonacoEnvironment = {
   },
 };
 
-export type DiffHandle = {
-  editor: monaco.editor.IStandaloneDiffEditor;
+export type EditorHandle = {
   setContents: (original: string, modified: string, editable: boolean) => void;
   getModified: () => string;
   dispose: () => void;
 };
 
-export function createDiffEditor(el: HTMLElement, onChange: (text: string) => void): DiffHandle {
-  const original = monaco.editor.createModel('', 'plaintext');
-  const modified = monaco.editor.createModel('', 'plaintext');
-  const editor = monaco.editor.createDiffEditor(el, {
+export function createSingleEditor(el: HTMLElement, onChange: (text: string) => void): EditorHandle {
+  const model = monaco.editor.createModel('', 'plaintext');
+  const editor = monaco.editor.create(el, {
+    model,
     automaticLayout: true,
-    renderSideBySide: true,
     wordWrap: 'off',
     minimap: { enabled: false },
     folding: false,
-    originalEditable: false,
-    ignoreTrimWhitespace: false,
-    renderWhitespace: 'none',
     fontSize: 13,
     theme: 'vs',
+    renderWhitespace: 'none',
+    scrollBeyondLastLine: false,
+    padding: { top: 8, bottom: 8 },
   });
-  editor.setModel({ original, modified });
-  const sub = modified.onDidChangeContent(() => onChange(modified.getValue()));
+  let deco: string[] = [];
+  const sub = model.onDidChangeContent(() => onChange(model.getValue()));
+
+  function paint(original: string, displayed: string) {
+    const marks = addedHighlight(original, displayed);
+    const next: monaco.editor.IModelDeltaDecoration[] = marks.lines.map((line) => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: {
+        isWholeLine: true,
+        className: 'gde-added-line',
+        marginClassName: 'gde-added-margin',
+        overviewRuler: {
+          color: 'rgba(24,128,56,0.8)',
+          position: monaco.editor.OverviewRulerLane.Left,
+        },
+      },
+    }));
+    for (const span of marks.spans) {
+      next.push({
+        range: new monaco.Range(span.line, span.startColumn, span.line, span.endColumn),
+        options: { inlineClassName: 'gde-added-text' },
+      });
+    }
+    deco = editor.deltaDecorations(deco, next);
+  }
+
   return {
-    editor,
-    setContents(orig, mod, editable) {
-      original.setValue(orig);
-      modified.setValue(mod);
-      editor.getModifiedEditor().updateOptions({ readOnly: !editable });
+    setContents(original, displayed, editable) {
+      if (model.getValue() !== displayed) model.setValue(displayed);
+      editor.updateOptions({ readOnly: !editable });
+      paint(original, displayed);
     },
-    getModified: () => modified.getValue(),
+    getModified: () => model.getValue(),
     dispose() {
       sub.dispose();
       editor.dispose();
-      original.dispose();
-      modified.dispose();
+      model.dispose();
     },
   };
 }
