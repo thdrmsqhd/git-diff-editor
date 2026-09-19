@@ -1,0 +1,20 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; font-family: Segoe UI, sans-serif; font-size: 13px; color: #1b1b1b; background: #f4f4f4; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: #2b2b2b; color: #fff; }
+.toolbar button { padding: 4px 10px; }
+.toolbar .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.body { display: flex; flex: 1; min-height: 0; }
+.sidebar { width: 260px; min-width: 160px; overflow: auto; background: #fff; border-right: 1px solid #ccc; padding: 6px 0; }
+.tree-item { padding: 2px 8px; cursor: pointer; display: flex; gap: 6px; }
+.tree-item.selected { background: #cce5ff; }
+.tree-item .st { width: 14px; font-weight: 700; }
+.st.M { color: #0b57d0; }
+.st.A, .st.U { color: #188038; }
+.st.D { color: #c5221f; }
+.st.R { color: #8a4d00; }
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.diff { flex: 1; min-height: 0; }
+.status { padding: 24px; }
+.dirty { color: #ffd54f; }
+.resizer { width: 4px; cursor: col-resize; background: #ddd; }
