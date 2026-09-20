@@ -17,6 +17,7 @@ pub fn run() {
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![
             commands::open_repository,
+            commands::refresh_repository,
             commands::list_recent_repositories,
             commands::read_document,
             commands::save_document,

@@ -1,4 +1,4 @@
-async function windowAction(fn: 'minimize' | 'toggleMaximize' | 'close') {
+async function windowAction(fn: 'minimize' | 'toggleMaximize') {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow()[fn]();
@@ -16,6 +16,7 @@ export function Toolbar(props: {
   canSave: boolean;
   onOpen: () => void;
   onSave: () => void;
+  onClose: () => void;
 }) {
   const branch = props.detached
     ? 'detached ' + (props.head?.slice(0, 8) ?? '')
@@ -40,7 +41,7 @@ export function Toolbar(props: {
         <button type="button" className="win-btn" aria-label="최대화" onClick={() => void windowAction('toggleMaximize')}>
           □
         </button>
-        <button type="button" className="win-btn close" aria-label="닫기" onClick={() => void windowAction('close')}>
+        <button type="button" className="win-btn close" aria-label="닫기" onClick={props.onClose}>
           ✕
         </button>
       </div>

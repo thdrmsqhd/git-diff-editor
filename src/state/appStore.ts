@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { DocumentPayload, FileEntry, RepositorySnapshot } from '../ipc/client';
 
-type Dialog = { next: 'select' | 'open-repo' | 'quit'; path?: string } | null;
+export type PendingAction = { next: 'select' | 'open-repo' | 'quit'; path?: string };
 
 type Store = {
   session: RepositorySnapshot | null;
@@ -13,19 +13,19 @@ type Store = {
   dirty: boolean;
   loadState: string;
   error: string | null;
-  unsavedDialog: Dialog;
+  unsavedDialog: PendingAction | null;
   requestSequence: number;
-  setSession: (s: RepositorySnapshot) => void;
-  setError: (e: string | null) => void;
-  setLoadState: (s: string) => void;
-  setDocument: (d: DocumentPayload) => void;
+  setSession: (session: RepositorySnapshot) => void;
+  setError: (error: string | null) => void;
+  setLoadState: (state: string) => void;
+  setDocument: (document: DocumentPayload) => void;
   edit: (text: string) => void;
-  markSaved: (d: DocumentPayload) => void;
-  setSelected: (p: string | null) => void;
-  setDialog: (d: Dialog) => void;
+  markSaved: (document: DocumentPayload) => void;
+  setSelected: (path: string | null) => void;
+  setDialog: (dialog: PendingAction | null) => void;
   bumpSeq: () => number;
-  applyExternal: (d: DocumentPayload) => void;
-  setFiles: (f: FileEntry[]) => void;
+  applyExternal: (document: DocumentPayload) => void;
+  setFiles: (files: FileEntry[]) => void;
 };
 
 export const useAppStore = create<Store>((set, get) => ({
@@ -40,38 +40,49 @@ export const useAppStore = create<Store>((set, get) => ({
   error: null,
   unsavedDialog: null,
   requestSequence: 0,
-  setSession: (s) => set({ session: s, files: s.files, error: null, loadState: 'ready' }),
-  setError: (e) => set({ error: e, loadState: 'error' }),
-  setLoadState: (s) => set({ loadState: s }),
-  setDocument: (d) =>
+  setSession: (session) => set({ session, files: session.files, error: null, loadState: 'ready' }),
+  setError: (error) => set({ error, loadState: error ? 'error' : get().loadState }),
+  setLoadState: (loadState) => set({ loadState }),
+  setDocument: (document) =>
     set({
-      document: d,
-      bufferText: d.currentText,
+      document,
+      bufferText: document.currentText,
       bufferRevision: 0,
       dirty: false,
-      selectedPath: d.path,
-      loadState: d.loadState,
+      selectedPath: document.path,
+      loadState: document.loadState,
+      error: null,
     }),
   edit: (text) => {
-    const doc = get().document;
-    const dirty = !!doc && text !== doc.currentText;
+    const document = get().document;
+    const dirty = !!document && text !== document.currentText;
     set({ bufferText: text, bufferRevision: get().bufferRevision + 1, dirty });
   },
-  markSaved: (d) => set({ document: d, bufferText: d.currentText, dirty: false, files: get().files }),
-  setSelected: (p) => set({ selectedPath: p }),
-  setDialog: (d) => set({ unsavedDialog: d }),
-  bumpSeq: () => {
-    const n = get().requestSequence + 1;
-    set({ requestSequence: n });
-    return n;
-  },
-  applyExternal: (d) =>
+  markSaved: (document) =>
     set({
-      document: d,
-      bufferText: d.currentText,
+      document,
+      bufferText: document.currentText,
+      dirty: false,
+      bufferRevision: 0,
+      error: null,
+      loadState: document.loadState,
+    }),
+  setSelected: (selectedPath) => set({ selectedPath }),
+  setDialog: (unsavedDialog) => set({ unsavedDialog }),
+  bumpSeq: () => {
+    const requestSequence = get().requestSequence + 1;
+    set({ requestSequence });
+    return requestSequence;
+  },
+  applyExternal: (document) =>
+    set({
+      document,
+      bufferText: document.currentText,
       dirty: false,
       bufferRevision: get().bufferRevision + 1,
-      loadState: d.loadState,
+      loadState: document.loadState,
+      selectedPath: document.path,
+      error: null,
     }),
-  setFiles: (f) => set({ files: f }),
+  setFiles: (files) => set({ files }),
 }));

@@ -1,10 +1,24 @@
-export type AddedSpan = { line: number; startColumn: number; endColumn: number };
-export type AddedHighlight = {
+export type DiffSpan = { line: number; startColumn: number; endColumn: number };
+export type DiffHighlight = {
   lines: number[];
-  spans: AddedSpan[];
+  spans: DiffSpan[];
+};
+export type DiffHunk = {
+  originalStart: number;
+  originalEnd: number;
+  modifiedStart: number;
+  modifiedEnd: number;
+  originalAnchor: number;
+  modifiedAnchor: number;
+};
+export type TextDiff = {
+  original: DiffHighlight;
+  modified: DiffHighlight;
+  hunks: DiffHunk[];
 };
 
 function splitLines(text: string): string[] {
+  if (text.length === 0) return [];
   return text.replace(/\r\n/g, '\n').split('\n');
 }
 
@@ -62,75 +76,121 @@ function greedyMatches(a: string[], b: string[]): { ai: number; bi: number }[] {
   return pairs;
 }
 
-function charAddedSpans(oldLine: string, newLine: string, line: number): AddedSpan[] {
-  if (oldLine === newLine) return [];
-  if (newLine.length === 0) return [];
-  if (oldLine.length * newLine.length > 200_000) {
-    return [{ line, startColumn: 1, endColumn: newLine.length + 1 }];
-  }
-  const a = Array.from(oldLine);
-  const b = Array.from(newLine);
-  const pairs = lcsBacktrack(a, b);
-  const matched = new Set(pairs.map((p) => p.bi));
-  const spans: AddedSpan[] = [];
+function unmatchedSpans(text: string, matched: Set<number>, line: number): DiffSpan[] {
+  const chars = Array.from(text);
+  const spans: DiffSpan[] = [];
   let start = -1;
-  for (let j = 0; j <= b.length; j++) {
-    const added = j < b.length && !matched.has(j);
-    if (added && start < 0) start = j;
-    if (!added && start >= 0) {
-      spans.push({ line, startColumn: start + 1, endColumn: j + 1 });
+  for (let i = 0; i <= chars.length; i++) {
+    const changed = i < chars.length && !matched.has(i);
+    if (changed && start < 0) start = i;
+    if (!changed && start >= 0) {
+      const before = chars.slice(0, start).join('').length;
+      const changedText = chars.slice(start, i).join('').length;
+      spans.push({ line, startColumn: before + 1, endColumn: before + changedText + 1 });
       start = -1;
     }
   }
   return spans;
 }
 
-export function addedHighlight(original: string, modified: string): AddedHighlight {
-  const a = splitLines(original);
-  const b = splitLines(modified);
-  if (modified.length === 0) return { lines: [], spans: [] };
-  if (original.length === 0) {
-    return { lines: b.map((_, i) => i + 1), spans: [] };
+function charDiffSpans(
+  oldLine: string,
+  newLine: string,
+  oldLineNumber: number,
+  newLineNumber: number,
+): { original: DiffSpan[]; modified: DiffSpan[] } {
+  if (oldLine === newLine) return { original: [], modified: [] };
+  if (oldLine.length * newLine.length > 200_000) {
+    return {
+      original: oldLine.length > 0 ? [{ line: oldLineNumber, startColumn: 1, endColumn: oldLine.length + 1 }] : [],
+      modified: newLine.length > 0 ? [{ line: newLineNumber, startColumn: 1, endColumn: newLine.length + 1 }] : [],
+    };
   }
 
+  const a = Array.from(oldLine);
+  const b = Array.from(newLine);
   const pairs = lcsBacktrack(a, b);
-  const lines: number[] = [];
-  const spans: AddedSpan[] = [];
+  const matchedOriginal = new Set(pairs.map((p) => p.ai));
+  const matchedModified = new Set(pairs.map((p) => p.bi));
+  return {
+    original: unmatchedSpans(oldLine, matchedOriginal, oldLineNumber),
+    modified: unmatchedSpans(newLine, matchedModified, newLineNumber),
+  };
+}
+
+function clampAnchor(candidate: number, lineCount: number): number {
+  if (lineCount <= 0) return 1;
+  return Math.max(1, Math.min(candidate, lineCount));
+}
+
+export function calculateTextDiff(original: string, modified: string): TextDiff {
+  const a = splitLines(original);
+  const b = splitLines(modified);
+  const pairs = lcsBacktrack(a, b);
+  const originalLines: number[] = [];
+  const modifiedLines: number[] = [];
+  const originalSpans: DiffSpan[] = [];
+  const modifiedSpans: DiffSpan[] = [];
+  const hunks: DiffHunk[] = [];
 
   let ia = 0;
   let ib = 0;
   let pi = 0;
-  while (ib < b.length) {
-    if (pi < pairs.length && pairs[pi].bi === ib) {
-      ia = pairs[pi].ai + 1;
-      pi += 1;
+
+  while (ia < a.length || ib < b.length) {
+    const pair = pi < pairs.length ? pairs[pi] : null;
+    if (pair && pair.ai === ia && pair.bi === ib) {
+      ia += 1;
       ib += 1;
+      pi += 1;
       continue;
     }
-    const nextA = pi < pairs.length ? pairs[pi].ai : a.length;
-    const nextB = pi < pairs.length ? pairs[pi].bi : b.length;
+
+    const nextA = pair?.ai ?? a.length;
+    const nextB = pair?.bi ?? b.length;
     const deleted = a.slice(ia, nextA);
     const added = b.slice(ib, nextB);
-    if (deleted.length === added.length && deleted.length > 0) {
-      for (let k = 0; k < added.length; k++) {
-        const line = ib + k + 1;
-        const inline = charAddedSpans(deleted[k], added[k], line);
-        if (inline.length === 0) lines.push(line);
-        else spans.push(...inline);
+
+    if (deleted.length > 0 || added.length > 0) {
+      hunks.push({
+        originalStart: ia + 1,
+        originalEnd: nextA,
+        modifiedStart: ib + 1,
+        modifiedEnd: nextB,
+        originalAnchor: clampAnchor(ia + 1, a.length),
+        modifiedAnchor: clampAnchor(ib + 1, b.length),
+      });
+
+      if (deleted.length === added.length && deleted.length > 0) {
+        for (let k = 0; k < deleted.length; k++) {
+          const originalLine = ia + k + 1;
+          const modifiedLine = ib + k + 1;
+          const spans = charDiffSpans(deleted[k], added[k], originalLine, modifiedLine);
+          if (spans.original.length > 0) originalSpans.push(...spans.original);
+          else originalLines.push(originalLine);
+          if (spans.modified.length > 0) modifiedSpans.push(...spans.modified);
+          else modifiedLines.push(modifiedLine);
+        }
+      } else {
+        for (let k = 0; k < deleted.length; k++) originalLines.push(ia + k + 1);
+        for (let k = 0; k < added.length; k++) modifiedLines.push(ib + k + 1);
       }
-    } else {
-      for (let k = 0; k < added.length; k++) lines.push(ib + k + 1);
     }
+
     ia = nextA;
     ib = nextB;
   }
 
-  return { lines, spans };
+  return {
+    original: { lines: originalLines, spans: originalSpans },
+    modified: { lines: modifiedLines, spans: modifiedSpans },
+    hunks,
+  };
 }
 
-export function changeLines(h: AddedHighlight): number[] {
-  const set = new Set<number>(h.lines);
-  for (const span of h.spans) set.add(span.line);
+export function changeLines(highlight: DiffHighlight): number[] {
+  const set = new Set<number>(highlight.lines);
+  for (const span of highlight.spans) set.add(span.line);
   return [...set].sort((a, b) => a - b);
 }
 
@@ -140,6 +200,24 @@ export function nextChangeLine(lines: number[], current: number, dir: 1 | -1): n
     const found = lines.find((n) => n > current);
     return found ?? lines[0];
   }
-  const prev = [...lines].reverse().find((n) => n < current);
-  return prev ?? lines[lines.length - 1];
+  const previous = [...lines].reverse().find((n) => n < current);
+  return previous ?? lines[lines.length - 1];
+}
+
+export function nextHunkIndex(
+  hunks: DiffHunk[],
+  currentLine: number,
+  dir: 1 | -1,
+  side: 'original' | 'modified' = 'modified',
+): number | null {
+  if (hunks.length === 0) return null;
+  const anchor = (h: DiffHunk) => (side === 'original' ? h.originalAnchor : h.modifiedAnchor);
+  if (dir === 1) {
+    const index = hunks.findIndex((h) => anchor(h) > currentLine);
+    return index >= 0 ? index : 0;
+  }
+  for (let i = hunks.length - 1; i >= 0; i--) {
+    if (anchor(hunks[i]) < currentLine) return i;
+  }
+  return hunks.length - 1;
 }

@@ -7,6 +7,8 @@ use crate::files::versions::disk_version;
 use crate::git::repository::{open_repo, RepoInfo};
 use crate::git::snapshot::{blob_oid_for, read_blob, snapshot_files};
 use crate::settings::store::{load as load_settings, push_recent};
+use crate::watch::coordinator::spawn_watch;
+use notify::RecommendedWatcher;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::fs;
@@ -17,6 +19,7 @@ use uuid::Uuid;
 pub struct AppState {
     pub sessions: Mutex<HashMap<String, RepoInfo>>,
     pub generation: Mutex<HashMap<String, u64>>,
+    pub watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
 
 impl Default for AppState {
@@ -24,15 +27,16 @@ impl Default for AppState {
         Self {
             sessions: Mutex::new(HashMap::new()),
             generation: Mutex::new(HashMap::new()),
+            watchers: Mutex::new(HashMap::new()),
         }
     }
 }
 
 fn bump(state: &AppState, id: &str) -> u64 {
-    let mut g = state.generation.lock();
-    let e = g.entry(id.to_string()).or_insert(0);
-    *e += 1;
-    *e
+    let mut generation = state.generation.lock();
+    let value = generation.entry(id.to_string()).or_insert(0);
+    *value += 1;
+    *value
 }
 
 fn snapshot_of(state: &AppState, id: &str, info: &RepoInfo) -> Result<RepositorySnapshot, AppError> {
@@ -54,15 +58,31 @@ fn snapshot_of(state: &AppState, id: &str, info: &RepoInfo) -> Result<Repository
 #[tauri::command]
 pub fn open_repository(
     path: String,
+    app: tauri::AppHandle,
     state: tauri::State<Arc<AppState>>,
 ) -> Result<RepositorySnapshot, AppError> {
     let info = open_repo(&PathBuf::from(&path))?;
     let id = Uuid::new_v4().to_string();
     push_recent(&info.root.to_string_lossy());
     bump(&state, &id);
-    let snap = snapshot_of(&state, &id, &info)?;
-    state.sessions.lock().insert(id, info);
-    Ok(snap)
+    let snapshot = snapshot_of(&state, &id, &info)?;
+    let watcher = spawn_watch(app, id.clone(), info.root.clone(), info.git_dir.clone())?;
+    state.sessions.lock().insert(id.clone(), info);
+    state.watchers.lock().insert(id, watcher);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn refresh_repository(
+    session_id: String,
+    state: tauri::State<Arc<AppState>>,
+) -> Result<RepositorySnapshot, AppError> {
+    let previous = session(&state, &session_id)?;
+    let refreshed = open_repo(&previous.root)?;
+    bump(&state, &session_id);
+    let snapshot = snapshot_of(&state, &session_id, &refreshed)?;
+    state.sessions.lock().insert(session_id, refreshed);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -90,24 +110,24 @@ fn load_payload(
         Some(oid) => {
             let bytes = read_blob(info, &oid)?;
             match decode(&bytes) {
-                Ok((t, _, _)) => t,
+                Ok((text, _, _)) => text,
                 Err(_) => String::new(),
             }
         }
         None => String::new(),
     };
     let (current_text, metadata, load_state, editable, reason) = if abs.exists() {
-        let bytes = fs::read(&abs).map_err(|e| AppError::Other(e.to_string()))?;
+        let bytes = fs::read(&abs).map_err(|error| AppError::Other(error.to_string()))?;
         match decode(&bytes) {
-            Ok((t, meta, ro)) => {
-                let ls = if ro { "unsupported" } else { "ready" };
-                let ed = !ro && meta.eol != "mixed";
-                let reason = if ro {
+            Ok((text, metadata, read_only)) => {
+                let load_state = if read_only { "unsupported" } else { "ready" };
+                let editable = !read_only && metadata.eol != "mixed";
+                let reason = if read_only {
                     Some("혼합 줄바꿈 파일은 읽기 전용입니다.".into())
                 } else {
                     None
                 };
-                (t, Some(meta), ls.to_string(), ed, reason)
+                (text, Some(metadata), load_state.to_string(), editable, reason)
             }
             Err(AppError::BinaryFile) => (
                 String::new(),
@@ -116,12 +136,12 @@ fn load_payload(
                 false,
                 Some("바이너리 파일은 미리보기를 지원하지 않습니다.".into()),
             ),
-            Err(e) => (
+            Err(error) => (
                 String::new(),
                 None,
                 "error".into(),
                 false,
-                Some(e.to_string()),
+                Some(error.to_string()),
             ),
         }
     } else {
@@ -162,24 +182,30 @@ pub fn save_document(
     let info = session(&state, &req.session_id)?;
     let abs = resolve_inside(&info.root, &req.path)?;
     match save_if_unchanged(&abs, &req.expected_disk_version, &req.text, &req.metadata)? {
-        Ok(_ver) => {
+        Ok(_version) => {
             bump(&state, &req.session_id);
-            let snap = snapshot_of(&state, &req.session_id, &info)?;
+            let snapshot = snapshot_of(&state, &req.session_id, &info)?;
             Ok(SaveDocumentResult::Saved {
                 disk_version: disk_version(&abs),
-                snapshot: snap,
+                snapshot,
             })
         }
         Err(_) => {
             let payload = load_payload(&info, &req.session_id, &req.path, 0)?;
             bump(&state, &req.session_id);
-            let snap = snapshot_of(&state, &req.session_id, &info)?;
-            Ok(SaveDocumentResult::RefreshedExternal { payload, snapshot: snap })
+            let snapshot = snapshot_of(&state, &req.session_id, &info)?;
+            Ok(SaveDocumentResult::RefreshedExternal { payload, snapshot })
         }
     }
 }
 
 #[tauri::command]
-pub fn stop_watch(_session_id: String) -> Result<(), AppError> {
+pub fn stop_watch(
+    session_id: String,
+    state: tauri::State<Arc<AppState>>,
+) -> Result<(), AppError> {
+    state.watchers.lock().remove(&session_id);
+    state.sessions.lock().remove(&session_id);
+    state.generation.lock().remove(&session_id);
     Ok(())
 }

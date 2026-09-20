@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 
 export type DiskVersion = {
@@ -54,12 +54,25 @@ export type DocumentPayload = {
   reason: string | null;
 };
 
+export type SaveDocumentResult =
+  | { kind: 'saved'; diskVersion: DiskVersion; snapshot: RepositorySnapshot }
+  | { kind: 'refreshedExternal'; payload: DocumentPayload; snapshot: RepositorySnapshot };
+
+export type RepositoryChangedPayload = {
+  sessionId: string;
+  generation: number;
+  paths: string[];
+  reason: 'external';
+};
+
 type E2eBridge = {
   pickFolder?: () => Promise<string | null>;
   openRepository?: (path: string) => Promise<RepositorySnapshot>;
+  refreshRepository?: (sessionId: string) => Promise<RepositorySnapshot>;
+  stopWatch?: (sessionId: string) => Promise<void>;
   readDocument?: (sessionId: string, path: string, requestSequence: number) => Promise<DocumentPayload>;
-  saveDocument?: (req: unknown) => Promise<unknown>;
-  onRepoChanged?: (cb: (p: unknown) => void) => Promise<UnlistenFn>;
+  saveDocument?: (req: unknown) => Promise<SaveDocumentResult>;
+  onRepoChanged?: (cb: (payload: RepositoryChangedPayload) => void) => Promise<UnlistenFn>;
 };
 
 declare global {
@@ -88,6 +101,12 @@ export async function pickFolder(): Promise<string | null> {
 export const api = {
   openRepository: (path: string) =>
     e2e()?.openRepository ? e2e()!.openRepository!(path) : invoke<RepositorySnapshot>('open_repository', { path }),
+  refreshRepository: (sessionId: string) =>
+    e2e()?.refreshRepository
+      ? e2e()!.refreshRepository!(sessionId)
+      : invoke<RepositorySnapshot>('refresh_repository', { sessionId }),
+  stopWatch: (sessionId: string) =>
+    e2e()?.stopWatch ? e2e()!.stopWatch!(sessionId) : invoke<void>('stop_watch', { sessionId }),
   listRecent: () =>
     e2e()?.openRepository
       ? Promise.resolve([])
@@ -97,11 +116,13 @@ export const api = {
       ? e2e()!.readDocument!(sessionId, path, requestSequence)
       : invoke<DocumentPayload>('read_document', { sessionId, path, requestSequence }),
   saveDocument: (req: unknown) =>
-    e2e()?.saveDocument ? e2e()!.saveDocument!(req) : invoke<unknown>('save_document', { req }),
+    e2e()?.saveDocument ? e2e()!.saveDocument!(req) : invoke<SaveDocumentResult>('save_document', { req }),
 };
 
-export function onRepoChanged(cb: (p: unknown) => void): Promise<UnlistenFn> {
+export function onRepoChanged(
+  cb: (payload: RepositoryChangedPayload) => void,
+): Promise<UnlistenFn> {
   if (e2e()?.onRepoChanged) return e2e()!.onRepoChanged!(cb);
   if (!inTauri()) return Promise.resolve(() => {});
-  return listen('repository-changed', (e) => cb(e.payload));
+  return listen<RepositoryChangedPayload>('repository-changed', (event) => cb(event.payload));
 }
