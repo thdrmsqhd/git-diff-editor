@@ -3,6 +3,8 @@ export type FileEntry = {
   status: string;
   previousPath?: string;
   editable: boolean;
+  additions: number;
+  deletions: number;
 };
 export type RepositorySnapshot = {
   root: string;

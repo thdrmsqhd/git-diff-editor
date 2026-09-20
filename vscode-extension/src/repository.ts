@@ -49,45 +49,82 @@ function parseNameStatus(raw: string): Map<string, { status: string; previousPat
   return out;
 }
 
+function parseNumstat(raw: string): Map<string, { additions: number; deletions: number }> {
+  const out = new Map<string, { additions: number; deletions: number }>();
+  for (const record of raw.split('\0')) {
+    if (!record) continue;
+    const [addedRaw, deletedRaw, filePath] = record.split('\t');
+    if (!filePath) continue;
+    const additions = Number.parseInt(addedRaw, 10);
+    const deletions = Number.parseInt(deletedRaw, 10);
+    out.set(filePath, {
+      additions: Number.isFinite(additions) ? additions : 0,
+      deletions: Number.isFinite(deletions) ? deletions : 0,
+    });
+  }
+  return out;
+}
+
+function countTextLines(bytes: Uint8Array): number {
+  if (bytes.byteLength === 0) return 0;
+  const text = Buffer.from(bytes).toString('utf8');
+  return text.split(/\r?\n/).length - (text.endsWith('\n') ? 1 : 0);
+}
+
 export async function detectRepository(folder: vscode.WorkspaceFolder): Promise<string> {
   const stdout = await git(folder.uri.fsPath, ['rev-parse', '--show-toplevel']);
   return stdout.trim();
 }
 
 export async function snapshotRepository(root: string): Promise<RepositorySnapshot> {
-  const [branchRaw, headRaw, listedRaw, diffRaw] = await Promise.all([
+  const [branchRaw, headRaw, listedRaw, diffRaw, numstatRaw] = await Promise.all([
     git(root, ['branch', '--show-current']),
     git(root, ['rev-parse', 'HEAD']),
     git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']),
     git(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', '--find-renames', 'HEAD', '--']),
+    git(root, ['diff', '--no-ext-diff', '--no-textconv', '--numstat', '-z', 'HEAD', '--']),
   ]);
 
   const statuses = parseNameStatus(diffRaw);
+  const numstat = parseNumstat(numstatRaw);
   const files: FileEntry[] = splitNul(listedRaw).map((filePath) => {
     const hit = statuses.get(filePath);
+    const stat = numstat.get(filePath);
     return {
       path: filePath,
       status: hit?.status ?? (statuses.has(filePath) ? 'M' : 'clean'),
       previousPath: hit?.previousPath,
       editable: true,
+      additions: stat?.additions ?? 0,
+      deletions: stat?.deletions ?? 0,
     };
   });
 
   for (const [filePath, hit] of statuses) {
     if (!files.some((file) => file.path === filePath)) {
+      const stat = numstat.get(filePath);
       files.push({
         path: filePath,
         status: hit.status,
         previousPath: hit.previousPath,
         editable: hit.status !== 'D',
+        additions: stat?.additions ?? 0,
+        deletions: stat?.deletions ?? 0,
       });
     }
   }
 
   const tracked = new Set(splitNul(await git(root, ['ls-files', '-z', '--cached'])));
-  for (const file of files) {
-    if (!tracked.has(file.path) && file.status === 'clean') file.status = 'U';
-  }
+  await Promise.all(files.map(async (file) => {
+    if (!tracked.has(file.path) && file.status === 'clean') {
+      file.status = 'U';
+      try {
+        file.additions = countTextLines(await vscode.workspace.fs.readFile(resolveInside(root, file.path)));
+      } catch {
+        file.additions = 0;
+      }
+    }
+  }));
 
   files.sort((a, b) => {
     const ac = a.status === 'clean' ? 1 : 0;

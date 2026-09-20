@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import type { Highlight } from './diff';
+import type { Highlight, Hunk } from './diff';
 
 self.MonacoEnvironment = { getWorker: () => new editorWorker() };
 
 export type EditorHandle = {
   revealLine(line: number): void;
   focus(): void;
+  screenY(line: number): number;
 };
 
 export function EditorPane(props: {
@@ -15,7 +16,9 @@ export function EditorPane(props: {
   editable: boolean;
   side: 'original' | 'modified';
   highlight: Highlight;
+  activeHunk?: Hunk;
   onChange?: (value: string) => void;
+  onViewportChange?: () => void;
   editorRef?: React.MutableRefObject<EditorHandle | null>;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -40,15 +43,27 @@ export function EditorPane(props: {
     });
     model.current = m;
     editor.current = e;
-    props.editorRef && (props.editorRef.current = {
-      revealLine(line) { e.revealLineInCenter(Math.max(1, Math.min(line, m.getLineCount()))); },
-      focus() { e.focus(); },
-    });
-    const sub = m.onDidChangeContent(() => {
+    if (props.editorRef) {
+      props.editorRef.current = {
+        revealLine(line) { e.revealLineInCenter(Math.max(1, Math.min(line, m.getLineCount()))); },
+        focus() { e.focus(); },
+        screenY(line) {
+          const safe = Math.max(1, Math.min(line, m.getLineCount()));
+          return e.getTopForLineNumber(safe) - e.getScrollTop() + e.getOption(monaco.editor.EditorOption.lineHeight) / 2;
+        },
+      };
+    }
+    const contentSub = m.onDidChangeContent(() => {
       if (!applying.current) props.onChange?.(m.getValue());
     });
+    const scrollSub = e.onDidScrollChange(() => props.onViewportChange?.());
+    const layoutSub = e.onDidLayoutChange(() => props.onViewportChange?.());
     return () => {
-      sub.dispose(); e.dispose(); m.dispose();
+      contentSub.dispose();
+      scrollSub.dispose();
+      layoutSub.dispose();
+      e.dispose();
+      m.dispose();
       if (props.editorRef) props.editorRef.current = null;
     };
   }, []);
@@ -63,9 +78,8 @@ export function EditorPane(props: {
     }
     e.updateOptions({ readOnly: !props.editable });
     const isModified = props.side === 'modified';
-    decorations.current = e.deltaDecorations(
-      decorations.current,
-      props.highlight.lines.map((line) => ({
+    const next: monaco.editor.IModelDeltaDecoration[] = [
+      ...props.highlight.lines.map((line) => ({
         range: new monaco.Range(line, 1, line, 1),
         options: {
           isWholeLine: true,
@@ -73,8 +87,26 @@ export function EditorPane(props: {
           marginClassName: isModified ? 'added-margin' : 'deleted-margin',
         },
       })),
-    );
-  }, [props.value, props.editable, props.side, props.highlight]);
+      ...props.highlight.spans.map((span) => ({
+        range: new monaco.Range(span.line, span.startColumn, span.line, span.endColumn),
+        options: { inlineClassName: isModified ? 'added-text' : 'deleted-text' },
+      })),
+    ];
+
+    if (props.activeHunk) {
+      const start = props.side === 'original' ? props.activeHunk.originalStart : props.activeHunk.modifiedStart;
+      const end = props.side === 'original' ? props.activeHunk.originalEnd : props.activeHunk.modifiedEnd;
+      if (end >= start && start > 0) {
+        next.push({
+          range: new monaco.Range(start, 1, Math.max(start, end), 1),
+          options: { isWholeLine: true, className: 'active-hunk-line' },
+        });
+      }
+    }
+
+    decorations.current = e.deltaDecorations(decorations.current, next);
+    props.onViewportChange?.();
+  }, [props.value, props.editable, props.side, props.highlight, props.activeHunk]);
 
   return <div className="editor-pane" ref={host} />;
 }
