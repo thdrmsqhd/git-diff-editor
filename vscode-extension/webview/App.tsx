@@ -16,8 +16,13 @@ export default function App() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [activeHunk, setActiveHunk] = useState(0);
+  const dirtyRef = useRef(false);
   const left = useRef<EditorHandle | null>(null);
   const right = useRef<EditorHandle | null>(null);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>) => {
@@ -29,23 +34,24 @@ export default function App() {
       setError(undefined);
       if ('snapshot' in message) setSnapshot(message.snapshot);
       if ('document' in message && message.document) {
+        const discarded = message.type === 'external-refresh' && dirtyRef.current;
         setDocument(message.document);
         setBuffer(message.document.currentText);
         setDirty(false);
         setActiveHunk(0);
-      }
-      if (message.type === 'external-refresh') {
-        setNotice(message.discardedLocalEdit && dirty
-          ? '외부 변경을 반영하여 미저장 편집을 폐기했습니다.'
-          : '외부 변경을 반영했습니다.');
-      } else if (message.type === 'saved') {
-        setNotice('저장했습니다.');
+        if (message.type === 'external-refresh') {
+          setNotice(discarded
+            ? '외부 변경을 반영하여 미저장 편집을 폐기했습니다.'
+            : '외부 변경을 반영했습니다.');
+        } else if (message.type === 'saved') {
+          setNotice('저장했습니다.');
+        }
       }
     };
     window.addEventListener('message', onMessage);
     vscode.postMessage({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
-  }, [dirty]);
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -80,11 +86,14 @@ export default function App() {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault(); save();
+        event.preventDefault();
+        save();
       } else if (event.key === 'F7') {
-        event.preventDefault(); navigate(-1);
+        event.preventDefault();
+        navigate(-1);
       } else if (event.key === 'F8') {
-        event.preventDefault(); navigate(1);
+        event.preventDefault();
+        navigate(1);
       }
     };
     window.addEventListener('keydown', key);

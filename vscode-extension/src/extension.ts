@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'node:path';
 import type { HostToWebview, RepositorySnapshot, WebviewToHost } from './protocol';
 import { detectRepository, readDocument, saveDocument, snapshotRepository } from './repository';
 
@@ -52,12 +51,10 @@ class ReviewSession implements vscode.Disposable {
   private selectedPath: string | undefined;
   private watcher: vscode.FileSystemWatcher | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
+  private suppressExternalUntil = 0;
   private disposed = false;
 
-  constructor(
-    private readonly panel: vscode.WebviewPanel,
-    private readonly extensionUri: vscode.Uri,
-  ) {}
+  constructor(private readonly panel: vscode.WebviewPanel) {}
 
   async start(): Promise<void> {
     const folder = await chooseWorkspace();
@@ -81,7 +78,6 @@ class ReviewSession implements vscode.Disposable {
     try {
       const snapshot = await snapshotRepository(this.root);
       this.snapshot = snapshot;
-
       let selected = this.selectedPath
         ? snapshot.files.find((file) => file.path === this.selectedPath)
         : undefined;
@@ -91,7 +87,7 @@ class ReviewSession implements vscode.Disposable {
         this.selectedPath = selected.path;
         const document = await readDocument(this.root, selected);
         this.post(external
-          ? { type: 'external-refresh', snapshot, document, discardedLocalEdit: true }
+          ? { type: 'external-refresh', snapshot, document, discardedLocalEdit: false }
           : { type: 'snapshot', snapshot, document });
       } else {
         this.selectedPath = undefined;
@@ -105,23 +101,25 @@ class ReviewSession implements vscode.Disposable {
   }
 
   private queueExternalRefresh(): void {
+    if (Date.now() < this.suppressExternalUntil) return;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = setTimeout(() => void this.refresh(true), 180);
   }
 
   async onMessage(message: WebviewToHost): Promise<void> {
-    if (!this.snapshot) return;
+    if (!this.snapshot && message.type !== 'ready') return;
     try {
       if (message.type === 'ready') {
-        await this.refresh(false);
+        if (this.root) await this.refresh(false);
       } else if (message.type === 'refresh') {
         await this.refresh(false);
       } else if (message.type === 'select-file') {
-        const file = this.snapshot.files.find((entry) => entry.path === message.path);
+        const file = this.snapshot?.files.find((entry) => entry.path === message.path);
         if (!file) return;
         this.selectedPath = file.path;
         this.post({ type: 'document', document: await readDocument(this.root, file) });
       } else if (message.type === 'save') {
+        this.suppressExternalUntil = Date.now() + 900;
         await saveDocument(this.root, message.path, message.text);
         const snapshot = await snapshotRepository(this.root);
         this.snapshot = snapshot;
@@ -163,7 +161,7 @@ export function activate(context: vscode.ExtensionContext): void {
       currentPanel = panel;
       panel.webview.html = htmlFor(panel.webview, context.extensionUri);
 
-      const session = new ReviewSession(panel, context.extensionUri);
+      const session = new ReviewSession(panel);
       context.subscriptions.push(session);
       panel.webview.onDidReceiveMessage((message: WebviewToHost) => void session.onMessage(message));
       panel.onDidDispose(() => {
