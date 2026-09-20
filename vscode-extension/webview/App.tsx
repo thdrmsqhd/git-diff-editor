@@ -92,6 +92,14 @@ export default function App() {
   );
   const currentHunk = diff.hunks[activeHunk];
 
+  useEffect(() => {
+    if (diff.hunks.length === 0) {
+      if (activeHunk !== 0) setActiveHunk(0);
+    } else if (activeHunk >= diff.hunks.length) {
+      setActiveHunk(diff.hunks.length - 1);
+    }
+  }, [activeHunk, diff.hunks.length]);
+
   const refreshConnectors = useCallback(() => {
     const leftEditor = left.current;
     const rightEditor = right.current;
