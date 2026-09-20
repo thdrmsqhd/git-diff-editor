@@ -13,10 +13,13 @@
     "windows": [
       {
         "title": "Git Diff Editor",
+        "label": "main",
         "width": 1280,
         "height": 800,
         "resizable": true,
-        "visible": true
+        "visible": true,
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

@@ -6,6 +6,8 @@ export function DiffPane(props: {
   original: string;
   modified: string;
   editable: boolean;
+  headShort?: string;
+  dirty?: boolean;
   onChange: (text: string) => void;
 }) {
   const originalRef = useRef<HTMLDivElement | null>(null);
@@ -15,6 +17,7 @@ export function DiffPane(props: {
   const onChangeRef = useRef(props.onChange);
   onChangeRef.current = props.onChange;
   const split = useSideBySide(props.original);
+  const head = props.headShort ? 'HEAD ' + props.headShort : 'HEAD';
 
   useEffect(() => {
     if (!modifiedRef.current) return;
@@ -44,10 +47,32 @@ export function DiffPane(props: {
     modifiedHandle.current?.setContents(props.original, props.modified, props.editable);
   }, [props.original, props.modified, props.editable, split]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F7' && e.key !== 'F8') return;
+      e.preventDefault();
+      modifiedHandle.current?.revealChange(e.key === 'F8' ? 1 : -1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className={split ? 'diff split' : 'diff'}>
-      {split ? <div className="pane original" ref={originalRef} /> : null}
-      <div className="pane modified" ref={modifiedRef} />
+      {split ? (
+        <div className="pane original">
+          <div className="pane-head">{head}</div>
+          <div className="pane-body" ref={originalRef} />
+        </div>
+      ) : null}
+      <div className="pane modified">
+        <div className="pane-head">
+          작업 트리
+          {props.dirty ? <span className="pane-dirty">미저장</span> : null}
+          <span className="pane-hint">F8 다음 변경</span>
+        </div>
+        <div className="pane-body" ref={modifiedRef} />
+      </div>
     </div>
   );
 }

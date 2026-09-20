@@ -59,20 +59,27 @@ export default function App() {
     try {
       const snap = await api.openRepository(p);
       store.setSession(snap);
-      store.setDocument({
-        documentId: '',
-        sessionId: snap.sessionId,
-        path: '',
-        requestSequence: 0,
-        headOid: snap.headOid,
-        originalText: '',
-        currentText: '',
-        diskVersion: { exists: false, rawBytesHash: '', byteLength: 0, modifiedTimeHint: null },
-        metadata: null,
-        loadState: 'ready',
-        editable: false,
-        reason: null,
-      });
+      const first = snap.files.find((f) => f.status !== 'clean');
+      if (first) {
+        const seq = store.bumpSeq();
+        const doc = await api.readDocument(snap.sessionId, first.path, seq);
+        store.setDocument(doc);
+      } else {
+        store.setDocument({
+          documentId: '',
+          sessionId: snap.sessionId,
+          path: '',
+          requestSequence: 0,
+          headOid: snap.headOid,
+          originalText: '',
+          currentText: '',
+          diskVersion: { exists: false, rawBytesHash: '', byteLength: 0, modifiedTimeHint: null },
+          metadata: null,
+          loadState: 'ready',
+          editable: false,
+          reason: null,
+        });
+      }
     } catch (e) {
       store.setError(String((e as { message?: string }).message ?? e));
     }
@@ -145,9 +152,14 @@ export default function App() {
   } else if (store.error) {
     body = <StatusView text={store.error} />;
   } else if (!store.session) {
-    body = <StatusView text="저장소를 선택하세요." />;
+    body = <StatusView text="저장소를 선택하세요." hint="위쪽 저장소 열기로 폴더를 고르세요." />;
   } else if (!store.selectedPath) {
-    body = <StatusView text={changed ? '파일을 선택하세요.' : '변경사항이 없습니다'} />;
+    body = (
+      <StatusView
+        text={changed ? '파일을 선택하세요.' : '변경사항이 없습니다'}
+        hint={changed ? '왼쪽 변경 목록에서 파일을 고르세요.' : undefined}
+      />
+    );
   } else if (store.document && store.document.loadState === 'unsupported') {
     body = <StatusView text={store.document.reason ?? '미리보기를 지원하지 않습니다.'} />;
   } else if (store.document) {
@@ -157,6 +169,8 @@ export default function App() {
         modified={store.dirty ? store.bufferText : store.document.currentText}
         editable={store.document.editable}
         onChange={(t) => store.edit(t)}
+        headShort={store.session?.headOid?.slice(0, 8)}
+        dirty={store.dirty}
       />
     );
   }
@@ -173,9 +187,13 @@ export default function App() {
         onOpen={() => void openRepo()}
         onSave={() => void save()}
       />
-      <div className="body">
-        <FileTree files={store.files} selected={store.selectedPath} onSelect={(p) => void selectFile(p)} />
-        <div className="resizer" />
+      <div className={store.session ? 'body has-sidebar' : 'body'}>
+        {store.session ? (
+          <>
+            <FileTree files={store.files} selected={store.selectedPath} onSelect={(p) => void selectFile(p)} />
+            <div className="resizer" />
+          </>
+        ) : null}
         <div className="main">{body}</div>
       </div>
     </div>

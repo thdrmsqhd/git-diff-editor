@@ -79,8 +79,6 @@ test.describe('Git Diff Editor UI', () => {
     await page.getByTestId('open-repo').click();
     await expect(page.getByTestId('repo-path')).toHaveText('C:/e2e-repo');
     await expect(page.getByTestId('file-src/app.rs')).toBeVisible();
-    await expect(page.getByTestId('status')).toHaveText('파일을 선택하세요.');
-    await page.getByTestId('file-src/app.rs').click();
     await expect(page.getByTestId('status')).toHaveCount(0);
   });
 

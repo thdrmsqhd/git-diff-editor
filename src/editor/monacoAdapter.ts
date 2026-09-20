@@ -1,6 +1,6 @@
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import { addedHighlight } from './lineDiff';
+import { addedHighlight, changeLines, nextChangeLine } from './lineDiff';
 
 self.MonacoEnvironment = {
   getWorker() {
@@ -11,6 +11,7 @@ self.MonacoEnvironment = {
 export type EditorHandle = {
   setContents: (original: string, modified: string, editable: boolean) => void;
   getModified: () => string;
+  revealChange: (dir: 1 | -1) => void;
   dispose: () => void;
 };
 
@@ -29,10 +30,12 @@ export function createSingleEditor(el: HTMLElement, onChange: (text: string) => 
     padding: { top: 8, bottom: 8 },
   });
   let deco: string[] = [];
+  let hunks: number[] = [];
   const sub = model.onDidChangeContent(() => onChange(model.getValue()));
 
   function paint(original: string, displayed: string) {
     const marks = addedHighlight(original, displayed);
+    hunks = changeLines(marks);
     const next: monaco.editor.IModelDeltaDecoration[] = marks.lines.map((line) => ({
       range: new monaco.Range(line, 1, line, 1),
       options: {
@@ -61,6 +64,15 @@ export function createSingleEditor(el: HTMLElement, onChange: (text: string) => 
       paint(original, displayed);
     },
     getModified: () => model.getValue(),
+    revealChange(dir) {
+      const pos = editor.getPosition();
+      const current = pos?.lineNumber ?? 0;
+      const target = nextChangeLine(hunks, current, dir);
+      if (target == null) return;
+      editor.revealLineInCenter(target);
+      editor.setPosition({ lineNumber: target, column: 1 });
+      editor.focus();
+    },
     dispose() {
       sub.dispose();
       editor.dispose();

@@ -127,3 +127,19 @@ export function addedHighlight(original: string, modified: string): AddedHighlig
 
   return { lines, spans };
 }
+
+export function changeLines(h: AddedHighlight): number[] {
+  const set = new Set<number>(h.lines);
+  for (const span of h.spans) set.add(span.line);
+  return [...set].sort((a, b) => a - b);
+}
+
+export function nextChangeLine(lines: number[], current: number, dir: 1 | -1): number | null {
+  if (lines.length === 0) return null;
+  if (dir === 1) {
+    const found = lines.find((n) => n > current);
+    return found ?? lines[0];
+  }
+  const prev = [...lines].reverse().find((n) => n < current);
+  return prev ?? lines[lines.length - 1];
+}

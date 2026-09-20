@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addedHighlight } from './lineDiff';
+import { addedHighlight, nextChangeLine } from './lineDiff';
 
 describe('addedHighlight', () => {
   it('marks every line when original is empty', () => {
@@ -24,5 +24,14 @@ describe('addedHighlight', () => {
     const h = addedHighlight('same\n', 'same\n');
     expect(h.lines).toEqual([]);
     expect(h.spans).toEqual([]);
+  });
+});
+
+describe('nextChangeLine', () => {
+  it('wraps forward and backward', () => {
+    expect(nextChangeLine([2, 5, 9], 5, 1)).toBe(9);
+    expect(nextChangeLine([2, 5, 9], 9, 1)).toBe(2);
+    expect(nextChangeLine([2, 5, 9], 5, -1)).toBe(2);
+    expect(nextChangeLine([2, 5, 9], 2, -1)).toBe(9);
   });
 });
