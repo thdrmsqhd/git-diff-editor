@@ -1,0 +1,43 @@
+{
+  "name": "git-diff-editor-vscode",
+  "displayName": "Git Diff Editor",
+  "description": "Review HEAD vs working tree without synthetic alignment rows.",
+  "version": "0.1.0",
+  "publisher": "thdrmsqhd",
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onCommand:gitDiffEditor.openReview"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitDiffEditor.openReview",
+        "title": "Git Diff Editor: Open Review",
+        "category": "Git Diff Editor"
+      }
+    ]
+  },
+  "scripts": {
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "build:webview": "vite build",
+    "build": "npm run build:extension && npm run build:webview",
+    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js --watch",
+    "watch:webview": "vite build --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@types/vscode": "^1.95.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
