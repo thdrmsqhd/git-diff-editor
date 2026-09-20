@@ -13,8 +13,14 @@ import { FileTree } from './components/FileTree';
 import { DiffPane } from './components/DiffPane';
 import { StatusView } from './components/StatusView';
 import { UnsavedDialog } from './components/UnsavedDialog';
+import { ResizeHandle } from './components/ResizeHandle';
+import { clampNumber, usePersistentNumber } from './components/usePersistentNumber';
 
 type SaveOutcome = 'saved' | 'refreshed-external' | 'failed' | 'noop';
+type RetryAction =
+  | { kind: 'open-repo'; path: string }
+  | { kind: 'load-file'; path: string }
+  | { kind: 'save' };
 
 function messageOf(error: unknown): string {
   if (typeof error === 'object' && error && 'message' in error) {
@@ -47,9 +53,30 @@ function emptyDocument(sessionId: string, headOid: string | null): DocumentPaylo
 export default function App() {
   const store = useAppStore();
   const [notice, setNotice] = useState<string | null>(null);
+  const [retryAction, setRetryAction] = useState<RetryAction | null>(null);
+  const [sidebarWidth, setSidebarWidth] = usePersistentNumber('gde.sidebarWidth', 300, 200, 600);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [bodyWidth, setBodyWidth] = useState(() => window.innerWidth);
   const allowCloseRef = useRef(false);
   const ignoreWatchUntilRef = useRef(0);
   const openTokenRef = useRef(0);
+
+
+  useEffect(() => {
+    const element = bodyRef.current;
+    if (!element) return;
+    const update = () => setBodyWidth(element.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const sidebarMax = Math.max(200, Math.min(600, bodyWidth * 0.45));
+
+  useEffect(() => {
+    setSidebarWidth((width) => Math.min(width, sidebarMax));
+  }, [setSidebarWidth, sidebarMax]);
 
   useEffect(() => {
     if (!notice) return;
@@ -206,6 +233,7 @@ export default function App() {
     const token = ++openTokenRef.current;
     const previousSessionId = useAppStore.getState().session?.sessionId;
     const state = useAppStore.getState();
+    setRetryAction(null);
     state.setError(null);
     state.setLoadState('loading-repo');
 
@@ -228,19 +256,12 @@ export default function App() {
         return;
       }
 
-      state.setSelected(first.path);
-      const sequence = state.bumpSeq();
-      const document = await api.readDocument(snapshot.sessionId, first.path, sequence);
-      const latest = useAppStore.getState();
-      if (
-        latest.session?.sessionId === snapshot.sessionId &&
-        latest.requestSequence === sequence &&
-        document.requestSequence === sequence
-      ) {
-        latest.setDocument(document);
-      }
+      await loadFile(first.path);
     } catch (error) {
-      if (token === openTokenRef.current) state.setError(messageOf(error));
+      if (token === openTokenRef.current) {
+        state.setError(messageOf(error));
+        setRetryAction({ kind: 'open-repo', path: selectedPath });
+      }
     }
   }
 
@@ -248,6 +269,7 @@ export default function App() {
     const state = useAppStore.getState();
     const session = state.session;
     if (!session) return;
+    setRetryAction(null);
     state.setError(null);
     state.setSelected(path);
     state.setLoadState('loading-doc');
@@ -266,6 +288,7 @@ export default function App() {
       const latest = useAppStore.getState();
       if (latest.session?.sessionId === session.sessionId && latest.requestSequence === sequence) {
         latest.setError(messageOf(error));
+        setRetryAction({ kind: 'load-file', path });
       }
     }
   }
@@ -276,9 +299,13 @@ export default function App() {
     if (!dirty) return 'noop';
     if (!session || !document || !document.editable || !document.metadata) {
       state.setError('현재 파일은 저장할 수 없습니다.');
+      setRetryAction(null);
       return 'failed';
     }
 
+    setRetryAction(null);
+    state.setError(null);
+    state.setLoadState('saving');
     try {
       const result: SaveDocumentResult = await api.saveDocument({
         sessionId: session.sessionId,
@@ -309,6 +336,7 @@ export default function App() {
       return 'saved';
     } catch (error) {
       state.setError(messageOf(error));
+      setRetryAction({ kind: 'save' });
       return 'failed';
     }
   }
@@ -358,7 +386,33 @@ export default function App() {
     await executeAction(pending);
   }
 
+  async function retryFailedAction() {
+    const action = retryAction;
+    if (!action) return;
+    if (action.kind === 'open-repo') await openRepo(action.path);
+    else if (action.kind === 'load-file') await loadFile(action.path);
+    else await save();
+  }
+
+  function dismissError() {
+    const state = useAppStore.getState();
+    setRetryAction(null);
+    state.setError(null);
+    state.setLoadState(state.document?.loadState ?? (state.session ? 'ready' : 'idle'));
+  }
+
   const changed = store.files.some((file) => file.status !== 'clean');
+  const busy = store.loadState === 'loading-repo' || store.loadState === 'loading-doc' || store.loadState === 'saving';
+  const editor = store.document && store.session ? (
+    <DiffPane
+      original={store.document.originalText}
+      modified={store.dirty ? store.bufferText : store.document.currentText}
+      editable={store.document.editable && store.loadState !== 'saving'}
+      onChange={(text) => store.edit(text)}
+      headShort={store.session.headOid?.slice(0, 8)}
+      dirty={store.dirty}
+    />
+  ) : null;
   let body;
   if (store.unsavedDialog) {
     body = (
@@ -368,29 +422,50 @@ export default function App() {
         onCancel={() => useAppStore.getState().setDialog(null)}
       />
     );
-  } else if (store.error) {
-    body = <StatusView text={store.error} />;
+  } else if (store.loadState === 'loading-repo') {
+    body = <StatusView text="저장소를 여는 중입니다." hint="Git 상태와 파일 목록을 확인하고 있습니다." busy />;
+  } else if (store.loadState === 'loading-doc') {
+    body = <StatusView text="파일을 불러오는 중입니다." hint={store.selectedPath ?? undefined} busy />;
+  } else if (store.error && retryAction?.kind !== 'save') {
+    body = (
+      <StatusView
+        text={store.error}
+        hint="현재 편집 내용은 유지됩니다."
+        primaryAction={retryAction ? { label: '다시 시도', onClick: () => void retryFailedAction() } : undefined}
+        secondaryAction={{ label: '닫기', onClick: dismissError }}
+      />
+    );
   } else if (!store.session) {
     body = <StatusView text="저장소를 선택하세요." hint="위쪽 저장소 열기로 폴더를 고르세요." />;
   } else if (!store.selectedPath) {
     body = (
       <StatusView
         text={changed ? '파일을 선택하세요.' : '변경사항이 없습니다'}
-        hint={changed ? '왼쪽 변경 목록에서 파일을 고르세요.' : undefined}
+        hint={changed ? '왼쪽 파일 트리에서 변경 파일을 고르세요.' : undefined}
       />
     );
   } else if (store.document && store.document.loadState === 'unsupported') {
     body = <StatusView text={store.document.reason ?? '미리보기를 지원하지 않습니다.'} />;
-  } else if (store.document) {
+  } else if (editor) {
     body = (
-      <DiffPane
-        original={store.document.originalText}
-        modified={store.dirty ? store.bufferText : store.document.currentText}
-        editable={store.document.editable}
-        onChange={(text) => store.edit(text)}
-        headShort={store.session?.headOid?.slice(0, 8)}
-        dirty={store.dirty}
-      />
+      <div className="document-stage">
+        {editor}
+        {store.loadState === 'saving' ? (
+          <div className="operation-overlay saving">
+            <StatusView text="파일을 저장하는 중입니다." hint="외부 변경을 확인한 뒤 안전하게 교체합니다." busy />
+          </div>
+        ) : null}
+        {store.error && retryAction?.kind === 'save' ? (
+          <div className="operation-overlay error">
+            <StatusView
+              text={store.error}
+              hint="편집 버퍼는 유지되었습니다."
+              primaryAction={{ label: '다시 시도', onClick: () => void retryFailedAction() }}
+              secondaryAction={{ label: '닫기', onClick: dismissError }}
+            />
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -403,19 +478,33 @@ export default function App() {
         head={store.session?.headOid}
         dirty={store.dirty}
         canSave={store.dirty && !!store.document?.editable}
+        busy={busy}
+        saving={store.loadState === 'saving'}
         onOpen={() => void requestAction({ next: 'open-repo' })}
         onSave={() => void save()}
         onClose={() => void requestAction({ next: 'quit' })}
       />
-      <div className={store.session ? 'body has-sidebar' : 'body'}>
+      <div className={store.session ? 'body has-sidebar' : 'body'} ref={bodyRef}>
         {store.session ? (
           <>
-            <FileTree
-              files={store.files}
-              selected={store.selectedPath}
-              onSelect={(path) => void requestAction({ next: 'select', path })}
+            <div className="sidebar-shell" style={{ width: sidebarWidth }}>
+              <FileTree
+                repositoryKey={store.session.sessionId}
+                files={store.files}
+                selected={store.selectedPath}
+                onSelect={(path) => void requestAction({ next: 'select', path })}
+              />
+            </div>
+            <ResizeHandle
+              className="sidebar-resizer"
+              ariaLabel="파일 사이드바 너비 조절"
+              ariaValueNow={Math.round(sidebarWidth)}
+              onDelta={(delta) => setSidebarWidth((width) => clampNumber(width + delta, 200, sidebarMax))}
+              onKeyboardDelta={(direction) =>
+                setSidebarWidth((width) => clampNumber(width + direction * 16, 200, sidebarMax))
+              }
+              onReset={() => setSidebarWidth(300)}
             />
-            <div className="resizer" />
           </>
         ) : null}
         <div className="main">{body}</div>

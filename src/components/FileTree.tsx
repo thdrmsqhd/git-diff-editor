@@ -1,75 +1,161 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FileEntry } from '../ipc/client';
+import {
+  ancestorDirectoryPaths,
+  buildFileTree,
+  collectDefaultCollapsedPaths,
+  collectDirectoryPaths,
+  type FileTreeNode,
+} from './fileTreeModel';
 
-function statusRank(s: string): number {
-  return ['M', 'A', 'U', 'D', 'R', 'conflict', 'unsupported'].includes(s) ? 0 : 1;
+function statusLabel(status: string): string {
+  return status === 'clean' ? '' : status;
 }
 
-export function fileName(path: string): string {
-  const parts = path.split('/');
-  return parts[parts.length - 1] || path;
-}
-
-export function fileDir(path: string): string {
-  const parts = path.split('/');
-  if (parts.length < 2) return '';
-  return parts.slice(0, -1).join('/');
-}
-
-export function sortFiles(files: FileEntry[]): FileEntry[] {
-  return [...files].sort((a, b) => {
-    const ra = statusRank(a.status);
-    const rb = statusRank(b.status);
-    if (ra !== rb) return ra - rb;
-    const da = fileDir(a.path);
-    const db = fileDir(b.path);
-    if (da !== db) return da.localeCompare(db);
-    return a.path.localeCompare(b.path);
-  });
-}
-
-function Row(props: {
-  file: FileEntry;
-  selected: boolean;
+function TreeRows(props: {
+  nodes: FileTreeNode[];
+  depth: number;
+  collapsed: Set<string>;
+  selected: string | null;
+  onToggle: (path: string) => void;
   onSelect: (path: string) => void;
 }) {
-  const f = props.file;
   return (
-    <div
-      className={'tree-item' + (props.selected ? ' selected' : '')}
-      data-testid={'file-' + f.path}
-      title={f.previousPath ? f.previousPath + ' → ' + f.path : f.path}
-      onClick={() => props.onSelect(f.path)}
-    >
-      <span className={'st ' + f.status}>{f.status === 'clean' ? '' : f.status}</span>
-      <span className="tree-name">{fileName(f.path)}</span>
-      <span className="tree-dir">{fileDir(f.path)}</span>
-    </div>
+    <>
+      {props.nodes.map((node) => {
+        if (node.kind === 'directory') {
+          const isCollapsed = props.collapsed.has(node.path);
+          return (
+            <div key={'directory-' + node.path}>
+              <button
+                type="button"
+                className={'tree-item tree-directory' + (node.changedCount > 0 ? ' changed' : '')}
+                style={{ paddingLeft: 8 + props.depth * 14 }}
+                aria-expanded={!isCollapsed}
+                data-testid={'directory-' + node.path}
+                title={node.path}
+                onClick={() => props.onToggle(node.path)}
+              >
+                <span className="tree-caret" aria-hidden="true">{isCollapsed ? '▸' : '▾'}</span>
+                <span className="tree-folder" aria-hidden="true">▰</span>
+                <span className="tree-name">{node.name}</span>
+                {node.changedCount > 0 ? (
+                  <span className="tree-change-count" title={`변경 파일 ${node.changedCount}개`}>
+                    {node.changedCount}
+                  </span>
+                ) : null}
+              </button>
+              {!isCollapsed ? (
+                <TreeRows
+                  nodes={node.children}
+                  depth={props.depth + 1}
+                  collapsed={props.collapsed}
+                  selected={props.selected}
+                  onToggle={props.onToggle}
+                  onSelect={props.onSelect}
+                />
+              ) : null}
+            </div>
+          );
+        }
+
+        const file = node.file;
+        return (
+          <button
+            type="button"
+            key={node.path}
+            className={'tree-item tree-file' + (props.selected === node.path ? ' selected' : '')}
+            style={{ paddingLeft: 8 + props.depth * 14 }}
+            data-testid={'file-' + node.path}
+            title={file.previousPath ? file.previousPath + ' → ' + node.path : node.path}
+            onClick={() => props.onSelect(node.path)}
+          >
+            <span className="tree-caret spacer" aria-hidden="true" />
+            <span className={'st ' + file.status}>{statusLabel(file.status)}</span>
+            <span className="tree-name">{node.name}</span>
+          </button>
+        );
+      })}
+    </>
   );
 }
 
 export function FileTree(props: {
+  repositoryKey: string;
   files: FileEntry[];
   selected: string | null;
   onSelect: (path: string) => void;
 }) {
-  const files = sortFiles(props.files);
-  const changed = files.filter((f) => f.status !== 'clean');
-  const rest = files.filter((f) => f.status === 'clean');
+  const tree = useMemo(() => buildFileTree(props.files), [props.files]);
+  const allDirectories = useMemo(() => collectDirectoryPaths(tree), [tree]);
+  const defaultCollapsed = useMemo(() => collectDefaultCollapsedPaths(tree), [tree]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(defaultCollapsed));
+  const previousRepository = useRef(props.repositoryKey);
+  const changedCount = props.files.filter((file) => file.status !== 'clean').length;
+
+  useEffect(() => {
+    if (previousRepository.current !== props.repositoryKey) {
+      previousRepository.current = props.repositoryKey;
+      setCollapsed(new Set(defaultCollapsed));
+      return;
+    }
+    const available = new Set(allDirectories);
+    setCollapsed((previous) => new Set([...previous].filter((path) => available.has(path))));
+  }, [allDirectories, defaultCollapsed, props.repositoryKey]);
+
+  useEffect(() => {
+    if (!props.selected) return;
+    const ancestors = new Set(ancestorDirectoryPaths(props.selected));
+    setCollapsed((previous) => {
+      const next = new Set([...previous].filter((path) => !ancestors.has(path)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [props.selected]);
+
+  function toggle(path: string) {
+    setCollapsed((previous) => {
+      const next = new Set(previous);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
   return (
     <div className="sidebar">
       <div className="side-head">
-        파일
-        {changed.length > 0 ? <span className="side-count">{changed.length}</span> : null}
+        <span>파일</span>
+        {changedCount > 0 ? <span className="side-count">{changedCount}</span> : null}
+        <span className="side-actions">
+          <button
+            type="button"
+            className="side-action"
+            title="모든 폴더 접기"
+            aria-label="모든 폴더 접기"
+            onClick={() => setCollapsed(new Set(allDirectories))}
+          >
+            접기
+          </button>
+          <button
+            type="button"
+            className="side-action"
+            title="모든 폴더 펼치기"
+            aria-label="모든 폴더 펼치기"
+            onClick={() => setCollapsed(new Set())}
+          >
+            펼치기
+          </button>
+        </span>
       </div>
-      <div className="side-body">
-        {changed.length > 0 ? <div className="side-label changed">변경</div> : null}
-        {changed.map((f) => (
-          <Row key={f.path} file={f} selected={props.selected === f.path} onSelect={props.onSelect} />
-        ))}
-        {rest.length > 0 ? <div className="side-label">기타</div> : null}
-        {rest.map((f) => (
-          <Row key={f.path} file={f} selected={props.selected === f.path} onSelect={props.onSelect} />
-        ))}
+      <div className="side-body" role="tree" aria-label="저장소 파일">
+        <TreeRows
+          nodes={tree}
+          depth={0}
+          collapsed={collapsed}
+          selected={props.selected}
+          onToggle={toggle}
+          onSelect={props.onSelect}
+        />
       </div>
     </div>
   );

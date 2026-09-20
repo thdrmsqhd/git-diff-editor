@@ -9,15 +9,30 @@ self.MonacoEnvironment = {
 };
 
 export type DiffSide = 'original' | 'modified';
+export type HunkRange = { start: number; end: number; anchor: number };
+export type ViewportRange = { top: number; bottom: number; visible: boolean };
 
 export type EditorHandle = {
-  setContents: (displayed: string, editable: boolean, highlight: DiffHighlight, side: DiffSide) => void;
+  setContents: (
+    displayed: string,
+    editable: boolean,
+    highlight: DiffHighlight,
+    side: DiffSide,
+    activeHunk?: HunkRange | null,
+  ) => void;
   getModified: () => string;
   getCurrentLine: () => number;
+  getViewportHeight: () => number;
+  getViewportRange: (range: HunkRange) => ViewportRange;
   hasTextFocus: () => boolean;
-  revealLine: (line: number, focus?: boolean) => void;
+  revealRange: (range: HunkRange, focus?: boolean) => void;
+  onViewportChange: (callback: () => void) => () => void;
   dispose: () => void;
 };
+
+function safeLine(model: monaco.editor.ITextModel, line: number): number {
+  return Math.max(1, Math.min(line, model.getLineCount()));
+}
 
 export function createSingleEditor(el: HTMLElement, onChange: (text: string) => void): EditorHandle {
   const model = monaco.editor.createModel('', 'plaintext');
@@ -39,7 +54,11 @@ export function createSingleEditor(el: HTMLElement, onChange: (text: string) => 
     if (!applyingContents) onChange(model.getValue());
   });
 
-  function paint(highlight: DiffHighlight, side: DiffSide) {
+  function paint(
+    highlight: DiffHighlight,
+    side: DiffSide,
+    activeHunk?: HunkRange | null,
+  ) {
     const added = side === 'modified';
     const lineClass = added ? 'gde-added-line' : 'gde-deleted-line';
     const marginClass = added ? 'gde-added-margin' : 'gde-deleted-margin';
@@ -63,11 +82,37 @@ export function createSingleEditor(el: HTMLElement, onChange: (text: string) => 
         options: { inlineClassName: textClass },
       });
     }
+
+    if (activeHunk) {
+      if (activeHunk.start <= activeHunk.end) {
+        const start = safeLine(model, activeHunk.start);
+        const end = safeLine(model, activeHunk.end);
+        next.push({
+          range: new monaco.Range(start, 1, end, model.getLineMaxColumn(end)),
+          options: {
+            isWholeLine: true,
+            className: 'gde-active-hunk-line',
+            marginClassName: 'gde-active-hunk-margin',
+          },
+        });
+      } else {
+        const anchor = safeLine(model, activeHunk.anchor);
+        next.push({
+          range: new monaco.Range(anchor, 1, anchor, 1),
+          options: {
+            isWholeLine: true,
+            className: 'gde-active-hunk-anchor',
+            marginClassName: 'gde-active-hunk-margin',
+          },
+        });
+      }
+    }
+
     decorations = editor.deltaDecorations(decorations, next);
   }
 
   return {
-    setContents(displayed, editable, highlight, side) {
+    setContents(displayed, editable, highlight, side, activeHunk) {
       if (model.getValue() !== displayed) {
         applyingContents = true;
         try {
@@ -77,16 +122,53 @@ export function createSingleEditor(el: HTMLElement, onChange: (text: string) => 
         }
       }
       editor.updateOptions({ readOnly: !editable });
-      paint(highlight, side);
+      paint(highlight, side, activeHunk);
     },
     getModified: () => model.getValue(),
     getCurrentLine: () => editor.getPosition()?.lineNumber ?? 1,
+    getViewportHeight: () => editor.getLayoutInfo().height,
+    getViewportRange(range) {
+      const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
+      const viewportHeight = editor.getLayoutInfo().height;
+      const scrollTop = editor.getScrollTop();
+      if (range.start <= range.end) {
+        const start = safeLine(model, range.start);
+        const end = safeLine(model, range.end);
+        const top = editor.getTopForLineNumber(start) - scrollTop;
+        const bottom = editor.getTopForLineNumber(end) - scrollTop + lineHeight;
+        return { top, bottom, visible: bottom >= 0 && top <= viewportHeight };
+      }
+      const anchor = safeLine(model, range.anchor);
+      const center = editor.getTopForLineNumber(anchor) - scrollTop + lineHeight / 2;
+      return {
+        top: center - 2,
+        bottom: center + 2,
+        visible: center >= -lineHeight && center <= viewportHeight + lineHeight,
+      };
+    },
     hasTextFocus: () => editor.hasTextFocus(),
-    revealLine(line, focus = false) {
-      const safeLine = Math.max(1, Math.min(line, model.getLineCount()));
-      editor.revealLineInCenter(safeLine);
-      editor.setPosition({ lineNumber: safeLine, column: 1 });
+    revealRange(range, focus = false) {
+      const anchor = safeLine(model, range.anchor);
+      if (range.start <= range.end) {
+        const start = safeLine(model, range.start);
+        const end = safeLine(model, range.end);
+        editor.revealRangeInCenter(
+          new monaco.Range(start, 1, end, model.getLineMaxColumn(end)),
+          monaco.editor.ScrollType.Smooth,
+        );
+      } else {
+        editor.revealLineInCenter(anchor, monaco.editor.ScrollType.Smooth);
+      }
+      editor.setPosition({ lineNumber: anchor, column: 1 });
       if (focus) editor.focus();
+    },
+    onViewportChange(callback) {
+      const scroll = editor.onDidScrollChange(callback);
+      const layout = editor.onDidLayoutChange(callback);
+      return () => {
+        scroll.dispose();
+        layout.dispose();
+      };
     },
     dispose() {
       sub.dispose();

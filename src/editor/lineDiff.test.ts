@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { calculateTextDiff, nextChangeLine, nextHunkIndex } from './lineDiff';
+import { calculateTextDiff, formatHunkSummary, nextChangeLine, nextHunkIndex } from './lineDiff';
 
 describe('calculateTextDiff', () => {
   it('marks every modified line when original is empty', () => {
     const diff = calculateTextDiff('', 'a\nb\n');
     expect(diff.modified.lines).toEqual([1, 2, 3]);
     expect(diff.original.lines).toEqual([]);
+    expect(diff.summary).toEqual({ deletedCount: 0, addedCount: 3 });
   });
 
   it('marks inserted lines only on the modified side', () => {
     const diff = calculateTextDiff('keep\n', 'keep\nnew\n');
     expect(diff.modified.lines).toEqual([2]);
     expect(diff.original.lines).toEqual([]);
+    expect(diff.hunks[0].addedCount).toBe(1);
   });
 
   it('marks deleted lines on the original side and keeps a navigable hunk', () => {
@@ -21,6 +23,7 @@ describe('calculateTextDiff', () => {
     expect(diff.hunks).toHaveLength(1);
     expect(diff.hunks[0].originalAnchor).toBe(2);
     expect(diff.hunks[0].modifiedAnchor).toBe(2);
+    expect(formatHunkSummary(diff.hunks[0])).toBe('-1 / +0');
   });
 
   it('marks changed characters on both sides of a modified line', () => {
@@ -28,6 +31,13 @@ describe('calculateTextDiff', () => {
     expect(diff.original.spans.length).toBeGreaterThan(0);
     expect(diff.modified.spans.length).toBeGreaterThan(0);
     expect(diff.hunks).toHaveLength(1);
+    expect(diff.summary).toEqual({ deletedCount: 1, addedCount: 1 });
+  });
+
+  it('summarizes multiple independent hunks', () => {
+    const diff = calculateTextDiff('a\nremove\nb\nc\n', 'a\nb\ninsert\nc\n');
+    expect(diff.hunks).toHaveLength(2);
+    expect(diff.summary).toEqual({ deletedCount: 1, addedCount: 1 });
   });
 
   it('marks nothing when texts match', () => {
@@ -37,6 +47,7 @@ describe('calculateTextDiff', () => {
     expect(diff.modified.lines).toEqual([]);
     expect(diff.modified.spans).toEqual([]);
     expect(diff.hunks).toEqual([]);
+    expect(diff.summary).toEqual({ deletedCount: 0, addedCount: 0 });
   });
 });
 

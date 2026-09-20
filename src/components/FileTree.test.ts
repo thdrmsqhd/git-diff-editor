@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fileName, sortFiles } from './FileTree';
+import {
+  ancestorDirectoryPaths,
+  buildFileTree,
+  collectDefaultCollapsedPaths,
+  type FileTreeDirectory,
+} from './fileTreeModel';
 import type { FileEntry } from '../ipc/client';
 
-function f(path: string, status: string): FileEntry {
+function file(path: string, status: string): FileEntry {
   return {
     path,
     previousPath: null,
@@ -14,16 +19,29 @@ function f(path: string, status: string): FileEntry {
   };
 }
 
-describe('sortFiles', () => {
-  it('keeps directory grouping and prefers changed files', () => {
-    const out = sortFiles([f('src/z.ts', 'clean'), f('src/a.ts', 'M'), f('lib/b.ts', 'clean')]);
-    expect(out.map((x) => x.path)).toEqual(['src/a.ts', 'lib/b.ts', 'src/z.ts']);
+describe('buildFileTree', () => {
+  it('builds hierarchy and prioritizes changed branches', () => {
+    const tree = buildFileTree([
+      file('docs/readme.md', 'clean'),
+      file('src/feature/a.ts', 'M'),
+      file('src/z.ts', 'clean'),
+      file('lib/b.ts', 'clean'),
+    ]);
+    expect(tree.map((node) => node.path)).toEqual(['src', 'docs', 'lib']);
+    const src = tree[0] as FileTreeDirectory;
+    expect(src.changedCount).toBe(1);
+    expect(src.children[0].path).toBe('src/feature');
+  });
+
+  it('collapses clean directory branches by default', () => {
+    const tree = buildFileTree([file('src/a.ts', 'M'), file('docs/readme.md', 'clean')]);
+    expect(collectDefaultCollapsedPaths(tree)).toContain('docs');
+    expect(collectDefaultCollapsedPaths(tree)).not.toContain('src');
   });
 });
 
-describe('fileName', () => {
-  it('shows the leaf name', () => {
-    expect(fileName('src/app.rs')).toBe('app.rs');
-    expect(fileName('README.md')).toBe('README.md');
+describe('ancestorDirectoryPaths', () => {
+  it('returns every directory needed to reveal a selected file', () => {
+    expect(ancestorDirectoryPaths('src/features/a.ts')).toEqual(['src', 'src/features']);
   });
 });

@@ -10,11 +10,18 @@ export type DiffHunk = {
   modifiedEnd: number;
   originalAnchor: number;
   modifiedAnchor: number;
+  deletedCount: number;
+  addedCount: number;
+};
+export type DiffSummary = {
+  deletedCount: number;
+  addedCount: number;
 };
 export type TextDiff = {
   original: DiffHighlight;
   modified: DiffHighlight;
   hunks: DiffHunk[];
+  summary: DiffSummary;
 };
 
 function splitLines(text: string): string[] {
@@ -110,8 +117,8 @@ function charDiffSpans(
   const a = Array.from(oldLine);
   const b = Array.from(newLine);
   const pairs = lcsBacktrack(a, b);
-  const matchedOriginal = new Set(pairs.map((p) => p.ai));
-  const matchedModified = new Set(pairs.map((p) => p.bi));
+  const matchedOriginal = new Set(pairs.map((pair) => pair.ai));
+  const matchedModified = new Set(pairs.map((pair) => pair.bi));
   return {
     original: unmatchedSpans(oldLine, matchedOriginal, oldLineNumber),
     modified: unmatchedSpans(newLine, matchedModified, newLineNumber),
@@ -132,6 +139,8 @@ export function calculateTextDiff(original: string, modified: string): TextDiff 
   const originalSpans: DiffSpan[] = [];
   const modifiedSpans: DiffSpan[] = [];
   const hunks: DiffHunk[] = [];
+  let deletedCount = 0;
+  let addedCount = 0;
 
   let ia = 0;
   let ib = 0;
@@ -152,6 +161,8 @@ export function calculateTextDiff(original: string, modified: string): TextDiff 
     const added = b.slice(ib, nextB);
 
     if (deleted.length > 0 || added.length > 0) {
+      deletedCount += deleted.length;
+      addedCount += added.length;
       hunks.push({
         originalStart: ia + 1,
         originalEnd: nextA,
@@ -159,6 +170,8 @@ export function calculateTextDiff(original: string, modified: string): TextDiff 
         modifiedEnd: nextB,
         originalAnchor: clampAnchor(ia + 1, a.length),
         modifiedAnchor: clampAnchor(ib + 1, b.length),
+        deletedCount: deleted.length,
+        addedCount: added.length,
       });
 
       if (deleted.length === added.length && deleted.length > 0) {
@@ -185,7 +198,12 @@ export function calculateTextDiff(original: string, modified: string): TextDiff 
     original: { lines: originalLines, spans: originalSpans },
     modified: { lines: modifiedLines, spans: modifiedSpans },
     hunks,
+    summary: { deletedCount, addedCount },
   };
+}
+
+export function formatHunkSummary(hunk: DiffHunk): string {
+  return `-${hunk.deletedCount} / +${hunk.addedCount}`;
 }
 
 export function changeLines(highlight: DiffHighlight): number[] {
@@ -197,10 +215,10 @@ export function changeLines(highlight: DiffHighlight): number[] {
 export function nextChangeLine(lines: number[], current: number, dir: 1 | -1): number | null {
   if (lines.length === 0) return null;
   if (dir === 1) {
-    const found = lines.find((n) => n > current);
+    const found = lines.find((line) => line > current);
     return found ?? lines[0];
   }
-  const previous = [...lines].reverse().find((n) => n < current);
+  const previous = [...lines].reverse().find((line) => line < current);
   return previous ?? lines[lines.length - 1];
 }
 
@@ -211,9 +229,9 @@ export function nextHunkIndex(
   side: 'original' | 'modified' = 'modified',
 ): number | null {
   if (hunks.length === 0) return null;
-  const anchor = (h: DiffHunk) => (side === 'original' ? h.originalAnchor : h.modifiedAnchor);
+  const anchor = (hunk: DiffHunk) => (side === 'original' ? hunk.originalAnchor : hunk.modifiedAnchor);
   if (dir === 1) {
-    const index = hunks.findIndex((h) => anchor(h) > currentLine);
+    const index = hunks.findIndex((hunk) => anchor(hunk) > currentLine);
     return index >= 0 ? index : 0;
   }
   for (let i = hunks.length - 1; i >= 0; i--) {

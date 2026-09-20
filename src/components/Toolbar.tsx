@@ -14,6 +14,8 @@ export function Toolbar(props: {
   head?: string | null;
   dirty: boolean;
   canSave: boolean;
+  busy?: boolean;
+  saving?: boolean;
   onOpen: () => void;
   onSave: () => void;
   onClose: () => void;
@@ -24,15 +26,27 @@ export function Toolbar(props: {
   return (
     <div className="toolbar" data-tauri-drag-region>
       <span className="brand">Git Diff Editor</span>
-      <button type="button" className="btn" data-testid="open-repo" onClick={props.onOpen}>
+      <button
+        type="button"
+        className="btn"
+        data-testid="open-repo"
+        disabled={props.busy}
+        onClick={props.onOpen}
+      >
         저장소 열기
       </button>
       <span className="path" data-testid="repo-path">{props.path ?? '저장소를 선택하세요'}</span>
       {branch ? <span className="chip">{branch}</span> : null}
       {props.head ? <span className="chip">{props.head.slice(0, 8)}</span> : null}
       {props.dirty ? <span className="dirty" data-testid="dirty">미저장</span> : null}
-      <button type="button" className="btn primary" data-testid="save" disabled={!props.canSave} onClick={props.onSave}>
-        저장
+      <button
+        type="button"
+        className="btn primary"
+        data-testid="save"
+        disabled={!props.canSave || props.busy}
+        onClick={props.onSave}
+      >
+        {props.saving ? '저장 중…' : '저장'}
       </button>
       <div className="win-controls">
         <button type="button" className="win-btn" aria-label="최소화" onClick={() => void windowAction('minimize')}>
