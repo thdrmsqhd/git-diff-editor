@@ -23,7 +23,8 @@
     "build": "npm run build:extension && npm run build:webview",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js --watch",
     "watch:webview": "vite build --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "package:vsix": "npm run build && vsce package --out release/git-diff-editor-vscode-0.1.0.vsix"
   },
   "dependencies": {
     "monaco-editor": "^0.52.2",
@@ -36,6 +37,7 @@
     "@types/react-dom": "^19.1.2",
     "@types/vscode": "^1.95.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"

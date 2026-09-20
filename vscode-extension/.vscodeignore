@@ -1,5 +1,7 @@
 src/**
 webview/**
 node_modules/**
+.vscode/**
+release/**
 tsconfig.json
 vite.config.ts
