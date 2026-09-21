@@ -23,13 +23,16 @@ export default function App() {
   const [activeHunk, setActiveHunk] = useState(0);
   const [reviewed, setReviewed] = useState<Set<string>>(new Set());
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [scrollSync, setScrollSync] = useState(() => localStorage.getItem('gde.vscode.scrollSync') !== 'off');
   const [sidebarWidth, setSidebarWidth] = usePersistentNumber('gde.vscode.sidebarWidth', 300, 190, 620);
   const dirtyRef = useRef(false);
   const left = useRef<EditorHandle | null>(null);
   const right = useRef<EditorHandle | null>(null);
   const connectorBody = useRef<HTMLDivElement | null>(null);
+  const programmaticScrollSide = useRef<'original' | 'modified' | null>(null);
 
   useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  useEffect(() => { localStorage.setItem('gde.vscode.scrollSync', scrollSync ? 'on' : 'off'); }, [scrollSync]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<HostToWebview>) => {
@@ -121,6 +124,45 @@ export default function App() {
     [snapshot?.files],
   );
   const reviewedChanged = changedFiles.filter((file) => reviewed.has(file.path)).length;
+
+  function syncScrollFrom(sourceSide: 'original' | 'modified') {
+    if (!scrollSync || diff.hunks.length === 0) return;
+    if (programmaticScrollSide.current === sourceSide) {
+      programmaticScrollSide.current = null;
+      return;
+    }
+
+    const source = sourceSide === 'original' ? left.current : right.current;
+    const target = sourceSide === 'original' ? right.current : left.current;
+    if (!source || !target) return;
+
+    const sourceCenter = source.getScrollTop() + source.getViewportHeight() / 2;
+    const anchors = diff.hunks.map((hunk) => ({
+      source: source.lineTop(sourceSide === 'original' ? hunk.originalAnchor : hunk.modifiedAnchor),
+      target: target.lineTop(sourceSide === 'original' ? hunk.modifiedAnchor : hunk.originalAnchor),
+    }));
+
+    let targetCenter: number;
+    if (anchors.length === 1 || sourceCenter <= anchors[0].source) {
+      targetCenter = anchors[0].target + (sourceCenter - anchors[0].source);
+    } else if (sourceCenter >= anchors[anchors.length - 1].source) {
+      const last = anchors[anchors.length - 1];
+      targetCenter = last.target + (sourceCenter - last.source);
+    } else {
+      let index = 0;
+      while (index + 1 < anchors.length && anchors[index + 1].source < sourceCenter) index++;
+      const a = anchors[index];
+      const b = anchors[index + 1];
+      const span = Math.max(1, b.source - a.source);
+      const ratio = Math.max(0, Math.min(1, (sourceCenter - a.source) / span));
+      targetCenter = a.target + (b.target - a.target) * ratio;
+    }
+
+    const targetTop = targetCenter - target.getViewportHeight() / 2;
+    programmaticScrollSide.current = sourceSide === 'original' ? 'modified' : 'original';
+    target.setScrollTop(targetTop);
+    requestAnimationFrame(refreshConnectors);
+  }
 
   function select(file: FileEntry) {
     if (dirty && !confirm('저장하지 않은 편집을 버리고 다른 파일로 이동할까요?')) return;
@@ -241,6 +283,14 @@ export default function App() {
                     </span>
                   ))}
                 </nav>
+                <button
+                  className={'sync-toggle ' + (scrollSync ? 'active' : '')}
+                  onClick={() => setScrollSync((value) => !value)}
+                  title="좌우 hunk 기준 완화형 스크롤 동기화"
+                  aria-pressed={scrollSync}
+                >
+                  Scroll Sync {scrollSync ? 'ON' : 'OFF'}
+                </button>
                 <span className="summary">
                   변경 {diff.hunks.length ? activeHunk + 1 : 0}/{diff.hunks.length}
                   {currentHunk && <> · <span className="minus">-{currentHunk.deletions}</span> <span className="plus">+{currentHunk.additions}</span></>}
@@ -260,6 +310,7 @@ export default function App() {
                     activeHunk={currentHunk}
                     editorRef={left}
                     onViewportChange={refreshConnectors}
+                    onScroll={() => syncScrollFrom('original')}
                   />
                 </section>
 
@@ -297,6 +348,7 @@ export default function App() {
                     activeHunk={currentHunk}
                     editorRef={right}
                     onViewportChange={refreshConnectors}
+                    onScroll={() => syncScrollFrom('modified')}
                     onChange={(value) => {
                       setBuffer(value);
                       setDirty(value !== document.currentText);
