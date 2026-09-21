@@ -23,6 +23,7 @@ export default function App() {
   const [activeHunk, setActiveHunk] = useState(0);
   const [reviewed, setReviewed] = useState<Set<string>>(new Set());
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [pendingFile, setPendingFile] = useState<FileEntry>();
   const [scrollSync, setScrollSync] = useState(() => localStorage.getItem('gde.vscode.scrollSync') !== 'off');
   const [sidebarWidth, setSidebarWidth] = usePersistentNumber('gde.vscode.sidebarWidth', 300, 190, 620);
   const dirtyRef = useRef(false);
@@ -168,9 +169,34 @@ export default function App() {
     });
   }
 
-  function select(file: FileEntry) {
-    if (dirty && !confirm('저장하지 않은 편집을 버리고 다른 파일로 이동할까요?')) return;
+  function openFile(file: FileEntry) {
     vscode.postMessage({ type: 'select-file', path: file.path });
+  }
+
+  function discardLocalEdits() {
+    if (!document) return;
+    setBuffer(document.currentText);
+    setDirty(false);
+    setActiveHunk(0);
+    dirtyRef.current = false;
+    requestAnimationFrame(refreshConnectors);
+  }
+
+  function select(file: FileEntry) {
+    if (document?.path === file.path) return;
+    if (dirty) {
+      setPendingFile(file);
+      return;
+    }
+    openFile(file);
+  }
+
+  function discardAndMove() {
+    const target = pendingFile;
+    if (!target) return;
+    discardLocalEdits();
+    setPendingFile(undefined);
+    openFile(target);
   }
 
   function save() {
@@ -248,6 +274,7 @@ export default function App() {
         )}
         {dirty && <span className="dirty">미저장</span>}
         <button onClick={() => vscode.postMessage({ type: 'refresh' })}>새로고침</button>
+        <button disabled={!dirty} onClick={discardLocalEdits}>변경 취소</button>
         <button className="primary" disabled={!dirty || !document?.editable} onClick={save}>저장</button>
       </header>
 
@@ -365,6 +392,20 @@ export default function App() {
         </main>
       </div>
       <div className="shortcut-hint">F7/F8 변경 이동 · Alt+F7/F8 변경 파일 이동</div>
+      {pendingFile && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPendingFile(undefined)}>
+          <div className="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-title" onMouseDown={(event) => event.stopPropagation()}>
+            <strong id="discard-title">저장하지 않은 변경 사항</strong>
+            <div className="discard-message">
+              현재 편집을 버리고 <b>{pendingFile.path}</b> 파일로 이동하시겠습니까?
+            </div>
+            <div className="discard-actions">
+              <button onClick={() => setPendingFile(undefined)}>취소</button>
+              <button className="danger" onClick={discardAndMove}>변경 버리고 이동</button>
+            </div>
+          </div>
+        </div>
+      )}
       {notice && <div className="notice">{notice}</div>}
     </div>
   );
