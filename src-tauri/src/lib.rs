@@ -21,7 +21,8 @@ pub fn run() {
             commands::list_recent_repositories,
             commands::read_document,
             commands::save_document,
-            commands::stop_watch
+            commands::stop_watch,
+            commands::quit_application
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
