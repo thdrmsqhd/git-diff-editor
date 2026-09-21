@@ -1,0 +1,98 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $base = (Get-Content package.json | ConvertFrom-Json).version
+          $latest = gh release list --limit 1 --json tagName --jq '.[0].tagName'
+          if (-not $latest) {
+            $next = [version]$base
+          } else {
+            $latestVersion = [version]($latest.TrimStart('v'))
+            $baseVersion = [version]$base
+            if ($latestVersion -lt $baseVersion) {
+              $next = $baseVersion
+            } else {
+              $next = [version]::new($latestVersion.Major, $latestVersion.Minor, $latestVersion.Build + 1)
+            }
+          }
+          "version=$($next.ToString())" >> $env:GITHUB_OUTPUT
+          "tag=v$($next.ToString())" >> $env:GITHUB_OUTPUT
+
+      - name: Apply CI version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node -e "const fs=require('fs'); const p='src-tauri/tauri.conf.json'; const j=JSON.parse(fs.readFileSync(p,'utf8')); j.version=process.env.RELEASE_VERSION; fs.writeFileSync(p, JSON.stringify(j,null,2));"
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --target x86_64-pc-windows-msvc
+
+      - name: Build Windows app
+        run: npx tauri build --target x86_64-pc-windows-msvc
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $target = "src-tauri/target/x86_64-pc-windows-msvc/release"
+          $portableExe = Get-ChildItem $target -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $portableExe) { throw "Portable executable not found under $target" }
+
+          New-Item -ItemType Directory -Force release | Out-Null
+          $portableDir = Join-Path $env:RUNNER_TEMP "GitDiffEditor-portable"
+          New-Item -ItemType Directory -Force $portableDir | Out-Null
+          Copy-Item $portableExe.FullName (Join-Path $portableDir "Git Diff Editor.exe")
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath "release/GitDiffEditor-$version-windows-x64-portable.zip" -Force
+
+          $installer = Get-ChildItem "$target/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found" }
+          Copy-Item $installer.FullName "release/Git.Diff.Editor_$($version)_x64-setup.exe"
+
+      - name: Create GitHub Release
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          $version = "${{ steps.version.outputs.version }}"
+          gh release create $tag "release/Git.Diff.Editor_$($version)_x64-setup.exe" "release/GitDiffEditor-$version-windows-x64-portable.zip" --target "${{ github.sha }}" --title $tag --generate-notes
