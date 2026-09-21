@@ -159,9 +159,13 @@ export default function App() {
     }
 
     const targetTop = targetCenter - target.getViewportHeight() / 2;
-    programmaticScrollSide.current = sourceSide === 'original' ? 'modified' : 'original';
+    const targetSide = sourceSide === 'original' ? 'modified' : 'original';
+    programmaticScrollSide.current = targetSide;
     target.setScrollTop(targetTop);
-    requestAnimationFrame(refreshConnectors);
+    requestAnimationFrame(() => {
+      if (programmaticScrollSide.current === targetSide) programmaticScrollSide.current = null;
+      refreshConnectors();
+    });
   }
 
   function select(file: FileEntry) {
