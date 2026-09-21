@@ -209,3 +209,15 @@ pub fn stop_watch(
     state.generation.lock().remove(&session_id);
     Ok(())
 }
+
+
+#[tauri::command]
+pub fn quit_application(
+    app: tauri::AppHandle,
+    state: tauri::State<Arc<AppState>>,
+) {
+    state.watchers.lock().clear();
+    state.sessions.lock().clear();
+    state.generation.lock().clear();
+    app.exit(0);
+}
