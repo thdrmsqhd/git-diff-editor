@@ -70,6 +70,7 @@ type E2eBridge = {
   openRepository?: (path: string) => Promise<RepositorySnapshot>;
   refreshRepository?: (sessionId: string) => Promise<RepositorySnapshot>;
   stopWatch?: (sessionId: string) => Promise<void>;
+  quitApplication?: () => Promise<void>;
   readDocument?: (sessionId: string, path: string, requestSequence: number) => Promise<DocumentPayload>;
   saveDocument?: (req: unknown) => Promise<SaveDocumentResult>;
   onRepoChanged?: (cb: (payload: RepositoryChangedPayload) => void) => Promise<UnlistenFn>;
@@ -107,6 +108,8 @@ export const api = {
       : invoke<RepositorySnapshot>('refresh_repository', { sessionId }),
   stopWatch: (sessionId: string) =>
     e2e()?.stopWatch ? e2e()!.stopWatch!(sessionId) : invoke<void>('stop_watch', { sessionId }),
+  quitApplication: () =>
+    e2e()?.quitApplication ? e2e()!.quitApplication!() : invoke<void>('quit_application'),
   listRecent: () =>
     e2e()?.openRepository
       ? Promise.resolve([])
