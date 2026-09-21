@@ -342,12 +342,9 @@ export default function App() {
   }
 
   async function closeWindow() {
-    const sessionId = useAppStore.getState().session?.sessionId;
-    if (sessionId) await api.stopWatch(sessionId).catch(() => undefined);
     try {
       allowCloseRef.current = true;
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      await getCurrentWindow().close();
+      await api.quitApplication();
     } catch {
       allowCloseRef.current = false;
     }
