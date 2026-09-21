@@ -20,6 +20,8 @@ button { font: inherit; }
   color: #d0d7de;
   flex: none;
   border-bottom: 1px solid #111;
+  user-select: none;
+  cursor: default;
 }
 .brand {
   font-weight: 650;
@@ -67,100 +69,182 @@ button { font: inherit; }
   background: #f6f8fa;
 }
 .side-head {
-  height: 32px;
+  height: 34px;
   padding: 0 8px 0 12px;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 650;
-  font-size: 12px;
-  border-bottom: 1px solid #d0d7de;
-  background: #eaeef2;
+  border-bottom: 1px solid #d8dee4;
+  background: #f6f8fa;
   flex: none;
+}
+.side-title-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.side-title {
+  color: #656d76;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .side-count {
   min-width: 18px;
   height: 18px;
   padding: 0 6px;
   border-radius: 9px;
-  background: #1f883d;
-  color: #fff;
-  font-size: 11px;
+  background: #d8dee4;
+  color: #57606a;
+  font-size: 10px;
   line-height: 18px;
   text-align: center;
+  font-weight: 700;
 }
 .side-actions { margin-left: auto; display: flex; gap: 2px; }
 .side-action {
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: #656d76;
   padding: 3px 5px;
   font-size: 11px;
   cursor: pointer;
 }
-.side-action:hover { background: #d8dee4; color: #1f2328; }
-.side-body { flex: 1; overflow: auto; padding: 5px 0 12px; }
+.side-action.icon-only {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+}
+.side-action:hover { background: #eaeef2; color: #1f2328; }
+.side-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 5px 10px;
+  scrollbar-gutter: stable;
+}
+.tree-group { position: relative; }
+.tree-children { position: relative; }
+.tree-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 17px;
+  width: 1px;
+  background: #e6e9ed;
+  pointer-events: none;
+}
 .tree-item {
   width: 100%;
   height: 28px;
-  padding-right: 8px;
+  padding-right: 7px;
   border: 0;
-  border-left: 3px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  color: #1f2328;
+  color: #24292f;
   cursor: pointer;
   display: flex;
   gap: 6px;
   align-items: center;
   text-align: left;
+  position: relative;
 }
-.tree-item:hover { background: #ffffff; }
+.tree-item:hover { background: #eef1f4; }
 .tree-item.selected {
-  background: #ddf4ff;
-  border-left-color: #0969da;
+  background: #dbeafe;
+  color: #0a3069;
 }
-.tree-directory { font-weight: 600; }
-.tree-directory.changed { color: #1a7f37; }
+.tree-item.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: #0969da;
+}
+.tree-directory { font-weight: 600; color: #3d444d; }
+.tree-directory.changed { color: #24292f; }
+.tree-directory-name { font-weight: 600; }
 .tree-caret {
   width: 12px;
   flex: none;
-  color: #656d76;
+  color: #8c959f;
   text-align: center;
+  font-size: 15px;
+  line-height: 1;
 }
 .tree-caret.spacer { visibility: hidden; }
-.tree-folder {
-  width: 12px;
+.tree-folder-icon {
+  width: 13px;
+  height: 10px;
   flex: none;
-  color: #9a6700;
-  text-align: center;
-  font-size: 10px;
+  border-radius: 2px;
+  background: #afb8c1;
+  position: relative;
+  opacity: .9;
 }
-.tree-item .st {
-  width: 18px;
-  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+.tree-folder-icon::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: -3px;
+  width: 6px;
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: #afb8c1;
+}
+.tree-file-icon {
+  width: 11px;
+  height: 14px;
+  flex: none;
+  border: 1px solid #afb8c1;
+  border-radius: 2px;
+  background: #fff;
+}
+.tree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
-  font-weight: 700;
-  flex: none;
-  text-align: center;
 }
-.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.tree-file.clean { color: #656d76; }
+.tree-file.clean .tree-file-icon { opacity: .65; }
+.tree-file.changed .tree-name { color: #24292f; font-weight: 500; }
 .tree-change-count {
   margin-left: auto;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: #dafbe1;
-  color: #1a7f37;
+  background: #eaeef2;
+  color: #57606a;
   font-size: 10px;
   line-height: 18px;
   text-align: center;
+  font-weight: 700;
 }
-.st.M { color: #0969da; }
-.st.A, .st.U { color: #1a7f37; }
-.st.D { color: #cf222e; }
-.st.R { color: #9a6700; }
-.st.conflict, .st.unsupported { color: #8250df; }
+.tree-status {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 4px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+.tree-status.M { color: #0550ae; background: #ddf4ff; }
+.tree-status.A, .tree-status.U { color: #116329; background: #dafbe1; }
+.tree-status.D { color: #a40e26; background: #ffebe9; }
+.tree-status.R { color: #7d4e00; background: #fff8c5; }
+.tree-status.conflict, .tree-status.unsupported { color: #6639ba; background: #fbefff; }
 .resize-handle,
 .sidebar-resizer,
 .pane-resizer {
