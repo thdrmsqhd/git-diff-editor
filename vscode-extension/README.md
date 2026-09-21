@@ -14,6 +14,7 @@ standalone Git Diff Editor의 핵심 UX를 VS Code Webview Extension으로 포�
 - 파일별 `-삭제/+추가` 변경량
 - Reviewed 체크와 변경 파일 검토 진행률
 - Breadcrumb 경로 표시
+- hunk anchor 보간 기반 완화형 좌우 스크롤 동기화
 - 외부 파일 변경 자동 반영
 - 우측 직접 편집 후 명시적 저장
 
@@ -32,6 +33,7 @@ standalone Git Diff Editor의 핵심 UX를 VS Code Webview Extension으로 포�
 | UX-012 | 전체 변경 파일 검토 진행률 |
 | UX-013 | Alt+F7/F8 이전/다음 변경 파일 |
 | UX-015 | 파일 경로 Breadcrumb |
+| UX-016 | hunk 기준 완화형 스크롤 싱크 |
 
 ## 단축키
 
@@ -40,6 +42,7 @@ standalone Git Diff Editor의 핵심 UX를 VS Code Webview Extension으로 포�
 - `Alt+F7`: 이전 변경 파일
 - `Alt+F8`: 다음 변경 파일
 - `Ctrl+S`: Working Tree 편집 저장
+- `Scroll Sync`: 좌우 편집기 스크롤 동기화 ON/OFF (기본 ON)
 
 ## 개발
 
