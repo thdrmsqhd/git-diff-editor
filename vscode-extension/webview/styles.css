@@ -146,3 +146,36 @@ main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: colu
   color: var(--vscode-foreground);
   background: color-mix(in srgb, var(--vscode-focusBorder) 12%, transparent);
 }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .35);
+}
+.discard-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-notifications-background);
+  color: var(--vscode-notifications-foreground);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+}
+.discard-message {
+  margin-top: 10px;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+.discard-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+button.danger {
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-button-background));
+  color: var(--vscode-button-foreground);
+}
