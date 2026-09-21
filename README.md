@@ -4,19 +4,31 @@ Windows용 HEAD vs 작업 트리 비교·편집 도구 (Tauri).
 
 ## 개발
 
-Rust GNU LLVM 툴체인과 llvm-mingw가 PATH에 있어야 합니다.
-
 ```
 npm install
 cd src-tauri && cargo test
 npm test
 ```
 
-앱 실행은 `npx tauri dev`이며 사용자 화면 포커스를 빼앗을 수 있어 기본 검증은 테스트로 수행합니다.
+앱 실행은 `npx tauri dev`입니다.
 
 ## 배포본 (Windows x64)
 
-`release/` 폴더:
+GitHub Releases에서 다음 파일을 제공합니다.
 
-- `Git Diff Editor.exe` — 포터블. 같은 폴더의 `WebView2Loader.dll`, `libunwind.dll`과 함께 복사
-- `Git Diff Editor_0.1.0_x64-setup.exe` — NSIS 설치본 (현재 사용자)
+- `Git.Diff.Editor_<version>_x64-setup.exe` — NSIS 설치본
+- `GitDiffEditor-<version>-windows-x64-portable.zip` — 포터블 실행본
+
+## 자동 릴리즈
+
+`master` 브랜치에 push되면 GitHub Actions가 자동으로:
+
+1. 프런트엔드/Rust 테스트
+2. Windows x64 빌드
+3. 설치형 EXE와 portable ZIP 생성
+4. GitHub Release 생성
+
+을 수행합니다.
+
+소스 기준 버전은 `0.2.0`이며, 기존 Release가 이 버전 이상이면 이후 master push마다 patch 버전을 자동 증가시킵니다.
+예: `v0.2.0 → v0.2.1 → v0.2.2`.
