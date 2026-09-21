@@ -9,6 +9,10 @@ export type EditorHandle = {
   revealLine(line: number): void;
   focus(): void;
   screenY(line: number): number;
+  lineTop(line: number): number;
+  getScrollTop(): number;
+  setScrollTop(value: number): void;
+  getViewportHeight(): number;
 };
 
 export function EditorPane(props: {
@@ -19,6 +23,7 @@ export function EditorPane(props: {
   activeHunk?: Hunk;
   onChange?: (value: string) => void;
   onViewportChange?: () => void;
+  onScroll?: (scrollTop: number) => void;
   editorRef?: React.MutableRefObject<EditorHandle | null>;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -51,12 +56,22 @@ export function EditorPane(props: {
           const safe = Math.max(1, Math.min(line, m.getLineCount()));
           return e.getTopForLineNumber(safe) - e.getScrollTop() + e.getOption(monaco.editor.EditorOption.lineHeight) / 2;
         },
+        lineTop(line) {
+          const safe = Math.max(1, Math.min(line, m.getLineCount()));
+          return e.getTopForLineNumber(safe) + e.getOption(monaco.editor.EditorOption.lineHeight) / 2;
+        },
+        getScrollTop() { return e.getScrollTop(); },
+        setScrollTop(value) { e.setScrollTop(Math.max(0, value), monaco.editor.ScrollType.Immediate); },
+        getViewportHeight() { return e.getLayoutInfo().height; },
       };
     }
     const contentSub = m.onDidChangeContent(() => {
       if (!applying.current) props.onChange?.(m.getValue());
     });
-    const scrollSub = e.onDidScrollChange(() => props.onViewportChange?.());
+    const scrollSub = e.onDidScrollChange((event) => {
+      props.onViewportChange?.();
+      if (event.scrollTopChanged) props.onScroll?.(event.scrollTop);
+    });
     const layoutSub = e.onDidLayoutChange(() => props.onViewportChange?.());
     return () => {
       contentSub.dispose();
